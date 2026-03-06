@@ -1,0 +1,177 @@
+local json = require("json")
+
+local TcpServer = {}
+TcpServer.__index = TcpServer
+
+local socket = nil
+local HAS_SOCKET = false
+
+-- Try to load luasocket
+local ok, luasocket = pcall(require, "socket")
+if ok then
+    socket = luasocket
+    HAS_SOCKET = true
+    Isaac.ConsoleOutput("IsaacRL: luasocket loaded successfully\n")
+else
+    Isaac.ConsoleOutput("IsaacRL: luasocket not available, falling back to file IPC\n")
+end
+
+function TcpServer.new(host, port, timeout)
+    local self = setmetatable({}, TcpServer)
+    self.host = host
+    self.port = port
+    self.timeout = timeout or 0.001
+    self.server = nil
+    self.client = nil
+    self.connected = false
+    self.use_file_ipc = not HAS_SOCKET
+    self.ipc_dir = nil
+    return self
+end
+
+function TcpServer:start()
+    if self.use_file_ipc then
+        return self:startFileIPC()
+    end
+    return self:startSocket()
+end
+
+function TcpServer:startSocket()
+    self.server = socket.tcp()
+    self.server:setoption("reuseaddr", true)
+    local ok, err = self.server:bind(self.host, self.port)
+    if not ok then
+        Isaac.ConsoleOutput("IsaacRL: Failed to bind: " .. tostring(err) .. "\n")
+        return false
+    end
+    self.server:listen(1)
+    self.server:settimeout(self.timeout)
+    Isaac.ConsoleOutput("IsaacRL: TCP server listening on " .. self.host .. ":" .. self.port .. "\n")
+    return true
+end
+
+function TcpServer:startFileIPC()
+    -- File-based IPC fallback: use temp files for communication
+    local tmpdir = os.getenv("TMPDIR") or os.getenv("TEMP") or "/tmp"
+    self.ipc_dir = tmpdir
+    self.state_file = tmpdir .. "/isaacrl_state.json"
+    self.action_file = tmpdir .. "/isaacrl_action.json"
+    self.ready_file = tmpdir .. "/isaacrl_ready"
+    -- Signal that we're ready
+    local f = io.open(self.ready_file, "w")
+    if f then
+        f:write("ready")
+        f:close()
+    end
+    Isaac.ConsoleOutput("IsaacRL: File IPC started in " .. tmpdir .. "\n")
+    self.connected = true
+    return true
+end
+
+function TcpServer:acceptClient()
+    if self.use_file_ipc then
+        return true
+    end
+    if self.connected then
+        return true
+    end
+    if not self.server then
+        return false
+    end
+    local client, err = self.server:accept()
+    if client then
+        client:settimeout(self.timeout)
+        self.client = client
+        self.connected = true
+        Isaac.ConsoleOutput("IsaacRL: Python client connected\n")
+        return true
+    end
+    return false
+end
+
+function TcpServer:sendState(stateTable)
+    local data = json.encode(stateTable)
+    if self.use_file_ipc then
+        local f = io.open(self.state_file, "w")
+        if f then
+            f:write(data)
+            f:close()
+            return true
+        end
+        return false
+    end
+    if not self.client then
+        return false
+    end
+    local ok, err = self.client:send(data .. "\n")
+    if not ok then
+        Isaac.ConsoleOutput("IsaacRL: Send error: " .. tostring(err) .. "\n")
+        self:handleDisconnect()
+        return false
+    end
+    return true
+end
+
+function TcpServer:receiveAction()
+    if self.use_file_ipc then
+        return self:receiveActionFile()
+    end
+    return self:receiveActionSocket()
+end
+
+function TcpServer:receiveActionSocket()
+    if not self.client then
+        return nil
+    end
+    local data, err = self.client:receive("*l")
+    if data then
+        local ok, action = pcall(json.decode, data)
+        if ok then
+            return action
+        else
+            Isaac.ConsoleOutput("IsaacRL: JSON decode error\n")
+            return nil
+        end
+    elseif err == "closed" then
+        self:handleDisconnect()
+    end
+    return nil
+end
+
+function TcpServer:receiveActionFile()
+    local f = io.open(self.action_file, "r")
+    if not f then
+        return nil
+    end
+    local data = f:read("*a")
+    f:close()
+    os.remove(self.action_file)
+    if data and #data > 0 then
+        local ok, action = pcall(json.decode, data)
+        if ok then
+            return action
+        end
+    end
+    return nil
+end
+
+function TcpServer:handleDisconnect()
+    Isaac.ConsoleOutput("IsaacRL: Client disconnected\n")
+    if self.client then
+        self.client:close()
+        self.client = nil
+    end
+    self.connected = false
+end
+
+function TcpServer:stop()
+    if self.client then
+        self.client:close()
+    end
+    if self.server then
+        self.server:close()
+    end
+    self.connected = false
+end
+
+return TcpServer
