@@ -1,5 +1,6 @@
 import argparse
 import logging
+import signal
 from pathlib import Path
 
 from stable_baselines3 import PPO
@@ -12,8 +13,9 @@ from network import IsaacFeatureExtractor
 
 
 def train(config_path: str | None = None, resume: str | None = None):
+    log = logging.getLogger("train")
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format="%(asctime)s [%(name)s] %(message)s",
         datefmt="%H:%M:%S",
     )
@@ -49,7 +51,7 @@ def train(config_path: str | None = None, resume: str | None = None):
 
     if resume:
         model = PPO.load(resume, env=env)
-        print(f"Resumed from {resume}")
+        log.info("Resumed from %s", resume)
     else:
         model = PPO(
             "MultiInputPolicy",
@@ -75,6 +77,23 @@ def train(config_path: str | None = None, resume: str | None = None):
         name_prefix="isaac_rl",
     )
 
+    # Graceful SIGINT: save checkpoint before exiting
+    interrupted = False
+
+    def _on_sigint(sig, frame):
+        nonlocal interrupted
+        if interrupted:
+            log.warning("Second interrupt, forcing exit")
+            raise SystemExit(1)
+        interrupted = True
+        log.info("Interrupt received, saving checkpoint...")
+        model.save(str(checkpoint_dir / "interrupted_model"))
+        log.info("Saved to %s", checkpoint_dir / "interrupted_model.zip")
+        env.close()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGINT, _on_sigint)
+
     model.learn(
         total_timesteps=config.train.total_timesteps,
         callback=[checkpoint_callback],
@@ -82,7 +101,7 @@ def train(config_path: str | None = None, resume: str | None = None):
     )
 
     model.save(str(checkpoint_dir / "final_model"))
-    print(f"Training complete. Model saved to {checkpoint_dir / 'final_model'}")
+    log.info("Training complete. Model saved to %s", checkpoint_dir / "final_model")
 
     env.close()
 
