@@ -43,6 +43,7 @@ class IsaacEnv(gym.Env):
         self.sock_file = None
         self.step_count = 0
         self.last_state = None
+        self._had_enemies = False
 
         # Throughput tracking
         self._total_steps = 0
@@ -99,20 +100,32 @@ class IsaacEnv(gym.Env):
 
         return {"grid": grid, "player": player}
 
+    def _drain_and_receive(self, predicate, max_attempts=300):
+        """Drain buffered states until we get one matching predicate."""
+        for _ in range(max_attempts):
+            state = self._receive()
+            if predicate(state):
+                return state
+        raise ConnectionError("Timed out waiting for valid state after reset")
+
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self._connect()
         self.step_count = 0
+        self._had_enemies = False
         self.reward_shaper.reset()
 
-        # Wait for initial state from game
+        # Drain any buffered state from game
         state = self._receive()
 
         # Send reset command
         self._send({"command": "reset"})
 
-        # Wait for post-reset state
-        state = self._receive()
+        # Drain stale states until we get a valid post-reset state
+        # (player alive, indicating the restart completed)
+        state = self._drain_and_receive(
+            lambda s: not s.get("player_dead", False)
+        )
         self.last_state = state
 
         obs = self._state_to_obs(state)
@@ -144,8 +157,14 @@ class IsaacEnv(gym.Env):
         # Compute reward
         reward = self.reward_shaper.compute(state)
 
-        # Check termination
-        terminated = state.get("player_dead", False) or state.get("room_cleared", False)
+        # Track whether enemies have appeared
+        if state.get("enemy_count", 0) > 0:
+            self._had_enemies = True
+
+        # Check termination: player died, or all enemies killed after they spawned
+        terminated = state.get("player_dead", False)
+        if not terminated and self._had_enemies and state.get("enemy_count", 0) == 0:
+            terminated = True
         truncated = self.step_count >= self.env_cfg.max_episode_steps
 
         obs = self._state_to_obs(state)
