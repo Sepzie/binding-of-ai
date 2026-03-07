@@ -1,4 +1,5 @@
 import argparse
+import logging
 from pathlib import Path
 
 from stable_baselines3 import PPO
@@ -11,6 +12,11 @@ from network import IsaacFeatureExtractor
 
 
 def train(config_path: str | None = None, resume: str | None = None):
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
     config = load_config(config_path)
 
     isaac_env = IsaacEnv(config)

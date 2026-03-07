@@ -1,4 +1,5 @@
 import json
+import logging
 import socket
 import time
 import numpy as np
@@ -7,6 +8,8 @@ from gymnasium import spaces
 
 from config import Config
 from reward import RewardShaper
+
+log = logging.getLogger("IsaacEnv")
 
 
 class IsaacEnv(gym.Env):
@@ -44,11 +47,17 @@ class IsaacEnv(gym.Env):
         self.step_count = 0
         self.last_state = None
         self._had_enemies = False
+        self._episode_num = 0
 
         # Throughput tracking
         self._total_steps = 0
         self._start_time = None
         self._throughput_interval = 1000  # log every N steps
+
+        # Episode tracking
+        self._ep_reward = 0.0
+        self._ep_kills = 0
+        self._ep_damage_taken = 0
 
     def _connect(self):
         if self.sock is not None:
@@ -117,24 +126,43 @@ class IsaacEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self._connect()
+
+        # Log previous episode summary
+        if self._episode_num > 0:
+            reason = "death" if (self.last_state and self.last_state.get("player_dead")) else "cleared"
+            if self.step_count >= self.env_cfg.max_episode_steps:
+                reason = "timeout"
+            log.info(
+                "EP %d ended (%s) | steps=%d reward=%.1f kills=%d dmg_taken=%d",
+                self._episode_num, reason, self.step_count,
+                self._ep_reward, self._ep_kills, self._ep_damage_taken,
+            )
+
+        self._episode_num += 1
         self.step_count = 0
         self._had_enemies = False
+        self._ep_reward = 0.0
+        self._ep_kills = 0
+        self._ep_damage_taken = 0
         self.reward_shaper.reset()
 
         # Try to drain any buffered state (may timeout if game is on death screen)
         try:
             self._receive()
         except (TimeoutError, OSError):
-            pass
+            log.debug("No buffered state on reset (death screen?)")
 
         # Send reset command
         self._send({"command": "reset"})
+        log.debug("Reset command sent, waiting for game restart...")
 
         # Wait for post-reset state (game restart may take several seconds)
         state = self._drain_and_receive(
             lambda s: not s.get("player_dead", False)
         )
         self.last_state = state
+        log.debug("EP %d started | enemies=%d tick=%d",
+                  self._episode_num, state.get("enemy_count", 0), state.get("tick", 0))
 
         obs = self._state_to_obs(state)
         info = {"state": state, "reward_components": {}}
@@ -164,6 +192,14 @@ class IsaacEnv(gym.Env):
 
         # Compute reward
         reward = self.reward_shaper.compute(state)
+        self._ep_reward += reward
+
+        # Track episode stats from reward components
+        rc = self.reward_shaper.reward_components
+        if rc.get("kills", 0) > 0:
+            self._ep_kills += int(rc["kills"] / self.config.reward.enemy_killed)
+        if rc.get("damage_taken", 0) < 0:
+            self._ep_damage_taken += 1
 
         # Track whether enemies have appeared
         if state.get("enemy_count", 0) > 0:
