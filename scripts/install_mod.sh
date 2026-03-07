@@ -7,14 +7,14 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 MOD_SRC="$SCRIPT_DIR/../mod"
 
-# Default Isaac mod directory (Linux Steam)
-ISAAC_MOD_DIR="${1:-$HOME/.local/share/binding of isaac afterbirth+ mods}"
+# Default Isaac mod directory — try common locations
+ISAAC_MOD_DIR="${1:-}"
 
-if [ ! -d "$ISAAC_MOD_DIR" ]; then
-    # Try alternate locations
+if [ -z "$ISAAC_MOD_DIR" ]; then
     for dir in \
-        "$HOME/.local/share/binding of isaac afterbirth+ mods" \
+        "$HOME/.local/share/Steam/steamapps/common/The Binding of Isaac Rebirth/mods" \
         "$HOME/.steam/steam/steamapps/common/The Binding of Isaac Rebirth/mods" \
+        "$HOME/.local/share/binding of isaac afterbirth+ mods" \
         "$HOME/Library/Application Support/Binding of Isaac Afterbirth+ Mods"; do
         if [ -d "$dir" ]; then
             ISAAC_MOD_DIR="$dir"

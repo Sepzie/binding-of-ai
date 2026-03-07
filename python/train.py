@@ -10,20 +10,14 @@ from isaac_env import IsaacEnv
 from network import IsaacFeatureExtractor
 
 
-def make_env(config):
-    env = IsaacEnv(config)
-    env = Monitor(env)
-    return env
-
-
 def train(config_path: str | None = None, resume: str | None = None):
     config = load_config(config_path)
 
-    env = make_env(config)
+    isaac_env = IsaacEnv(config)
 
-    # Configure the agent to use the game settings
-    env._connect()
-    env._send({
+    # Configure the game settings before wrapping
+    isaac_env._connect()
+    isaac_env._send({
         "command": "configure",
         "settings": {
             "enemy_type": config.phase.enemy_type,
@@ -33,6 +27,8 @@ def train(config_path: str | None = None, resume: str | None = None):
             "frame_skip": config.env.frame_skip,
         },
     })
+
+    env = Monitor(isaac_env)
 
     checkpoint_dir = Path("../checkpoints")
     log_dir = Path("../logs")

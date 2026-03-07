@@ -1,5 +1,6 @@
 import json
 import socket
+import time
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -42,6 +43,11 @@ class IsaacEnv(gym.Env):
         self.sock_file = None
         self.step_count = 0
         self.last_state = None
+
+        # Throughput tracking
+        self._total_steps = 0
+        self._start_time = None
+        self._throughput_interval = 1000  # log every N steps
 
     def _connect(self):
         if self.sock is not None:
@@ -115,6 +121,13 @@ class IsaacEnv(gym.Env):
 
     def step(self, action):
         self.step_count += 1
+        self._total_steps += 1
+        if self._start_time is None:
+            self._start_time = time.monotonic()
+        elif self._total_steps % self._throughput_interval == 0:
+            elapsed = time.monotonic() - self._start_time
+            sps = self._total_steps / elapsed
+            print(f"[IsaacEnv] {self._total_steps} steps, {sps:.1f} steps/sec")
 
         move_action = int(action[0])
         shoot_action = int(action[1])
