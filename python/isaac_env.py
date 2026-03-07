@@ -109,30 +109,16 @@ class IsaacEnv(gym.Env):
 
         return {"grid": grid, "player": player}
 
-    def _drain_and_receive(self, predicate, timeout=60.0, resend_cmd=None,
-                           resend_interval=5.0):
+    def _drain_and_receive(self, predicate, timeout=60.0):
         """Drain buffered states until we get one matching predicate.
-        Handles timeouts gracefully (game may be restarting).
-        Optionally re-sends a command every resend_interval seconds."""
+        Handles timeouts gracefully (game may be restarting)."""
         deadline = time.monotonic() + timeout
-        last_resend = time.monotonic()
-        timeouts = 0
         while time.monotonic() < deadline:
             try:
                 state = self._receive()
-                timeouts = 0  # got a response, reset counter
                 if predicate(state):
                     return state
             except (TimeoutError, OSError):
-                timeouts += 1
-                # Re-send command in case the mod missed it (death screen, etc.)
-                if resend_cmd and time.monotonic() - last_resend >= resend_interval:
-                    log.debug("Re-sending reset command (attempt %d)", timeouts)
-                    try:
-                        self._send(resend_cmd)
-                    except OSError:
-                        pass
-                    last_resend = time.monotonic()
                 continue
         raise ConnectionError("Timed out waiting for valid state after reset")
 
@@ -170,10 +156,9 @@ class IsaacEnv(gym.Env):
         self._send(reset_cmd)
         log.debug("Reset command sent, waiting for game restart...")
 
-        # Wait for post-reset state, re-sending reset if the mod missed it
+        # Wait for post-reset state (mod reads reset via MC_POST_RENDER during death screen)
         state = self._drain_and_receive(
-            lambda s: not s.get("player_dead", False),
-            resend_cmd=reset_cmd,
+            lambda s: not s.get("player_dead", False)
         )
         self.last_state = state
         log.debug("EP %d started | enemies=%d tick=%d",

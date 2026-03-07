@@ -43,12 +43,19 @@ function ActionInjector.init()
     BUTTON_TO_KEY[ButtonAction.ACTION_SHOOTDOWN] = "ACTION_SHOOTDOWN"
 end
 
+-- DEBUG: set to true to disable shooting (for death testing)
+ActionInjector.DISABLE_SHOOTING = true
+
 function ActionInjector.setAction(action)
     if action and action.move then
         currentAction.move = action.move
     end
     if action and action.shoot then
-        currentAction.shoot = action.shoot
+        if ActionInjector.DISABLE_SHOOTING then
+            currentAction.shoot = 0
+        else
+            currentAction.shoot = action.shoot
+        end
     end
 end
 

@@ -85,6 +85,34 @@ function mod:onUpdate()
     end
 end
 
+-- Check for commands even when MC_POST_UPDATE isn't firing (death screen, menus)
+function mod:onRender()
+    if not serverStarted or not server.connected then
+        return
+    end
+    -- Only act when onUpdate isn't running (player dead or resetting)
+    local player = Isaac.GetPlayer(0)
+    if player and not player:IsDead() and not GameControl.isResetting() then
+        return  -- onUpdate handles it
+    end
+
+    -- Try to read a command (non-blocking)
+    local message = server:receiveAction()
+    if not message then
+        return
+    end
+
+    if message.command == "reset" then
+        Isaac.ConsoleOutput("IsaacRL: Reset from render callback\n")
+        ActionInjector.reset()
+        GameControl.resetEpisode()
+    elseif message.command == "configure" then
+        if message.settings then
+            GameControl.configure(message.settings)
+        end
+    end
+end
+
 -- Input interception callback
 function mod:onInputAction(entity, inputHook, buttonAction)
     if not server.connected then
@@ -97,6 +125,7 @@ end
 mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, mod.onGameStart)
 mod:AddCallback(ModCallbacks.MC_POST_NEW_ROOM, mod.onNewRoom)
 mod:AddCallback(ModCallbacks.MC_POST_UPDATE, mod.onUpdate)
+mod:AddCallback(ModCallbacks.MC_POST_RENDER, mod.onRender)
 mod:AddCallback(ModCallbacks.MC_INPUT_ACTION, mod.onInputAction)
 
 Isaac.ConsoleOutput("IsaacRL: Mod loaded\n")
