@@ -100,12 +100,18 @@ class IsaacEnv(gym.Env):
 
         return {"grid": grid, "player": player}
 
-    def _drain_and_receive(self, predicate, max_attempts=300):
-        """Drain buffered states until we get one matching predicate."""
-        for _ in range(max_attempts):
-            state = self._receive()
-            if predicate(state):
-                return state
+    def _drain_and_receive(self, predicate, timeout=30.0):
+        """Drain buffered states until we get one matching predicate.
+        Handles timeouts gracefully (game may be restarting)."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                state = self._receive()
+                if predicate(state):
+                    return state
+            except (TimeoutError, OSError):
+                # Game is restarting, no states being sent yet — keep trying
+                continue
         raise ConnectionError("Timed out waiting for valid state after reset")
 
     def reset(self, *, seed=None, options=None):
@@ -115,14 +121,16 @@ class IsaacEnv(gym.Env):
         self._had_enemies = False
         self.reward_shaper.reset()
 
-        # Drain any buffered state from game
-        state = self._receive()
+        # Try to drain any buffered state (may timeout if game is on death screen)
+        try:
+            self._receive()
+        except (TimeoutError, OSError):
+            pass
 
         # Send reset command
         self._send({"command": "reset"})
 
-        # Drain stale states until we get a valid post-reset state
-        # (player alive, indicating the restart completed)
+        # Wait for post-reset state (game restart may take several seconds)
         state = self._drain_and_receive(
             lambda s: not s.get("player_dead", False)
         )

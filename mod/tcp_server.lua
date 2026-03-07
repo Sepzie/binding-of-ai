@@ -45,7 +45,7 @@ function TcpServer:startSocket()
         return false
     end
     self.server:listen(1)
-    self.server:settimeout(self.timeout)
+    self.server:settimeout(0.001)  -- non-blocking accept so game doesn't freeze waiting for connection
     Isaac.ConsoleOutput("IsaacRL: TCP server listening on " .. self.host .. ":" .. self.port .. "\n")
     return true
 end
