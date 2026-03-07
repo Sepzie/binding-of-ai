@@ -94,16 +94,21 @@ def train(config_path: str | None = None, resume: str | None = None):
 
     signal.signal(signal.SIGINT, _on_sigint)
 
-    model.learn(
-        total_timesteps=config.train.total_timesteps,
-        callback=[checkpoint_callback],
-        log_interval=config.train.log_interval,
-    )
-
-    model.save(str(checkpoint_dir / "final_model"))
-    log.info("Training complete. Model saved to %s", checkpoint_dir / "final_model")
-
-    env.close()
+    try:
+        model.learn(
+            total_timesteps=config.train.total_timesteps,
+            callback=[checkpoint_callback],
+            log_interval=config.train.log_interval,
+        )
+        model.save(str(checkpoint_dir / "final_model"))
+        log.info("Training complete. Model saved to %s", checkpoint_dir / "final_model")
+    except Exception:
+        log.exception("Training crashed, saving emergency checkpoint...")
+        model.save(str(checkpoint_dir / "crashed_model"))
+        log.info("Saved to %s", checkpoint_dir / "crashed_model.zip")
+        raise
+    finally:
+        env.close()
 
 
 if __name__ == "__main__":
