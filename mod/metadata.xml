@@ -3,5 +3,5 @@
     <directory>IsaacRL</directory>
     <description>Reinforcement learning agent environment for The Binding of Isaac</description>
     <version>0.1.0</version>
-    <visibility>False</visibility>
+    <visibility>True</visibility>
 </metadata>
