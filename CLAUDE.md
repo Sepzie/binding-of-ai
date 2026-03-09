@@ -8,5 +8,7 @@
 ## Architecture
 - Lua mod (`mod/`) communicates with Python (`python/`) over TCP port 9999
 - Game: Isaac Repentance v1.7.9b via Proton on Linux
-- Mod directory: `~/.local/share/Steam/steamapps/common/The Binding of Isaac Rebirth/mods/`
 - Track progress via CHECKLIST.md
+
+## Documentary Stories
+This project doubles as a case study for a YouTube documentary series. Development stories live in `docs/story/` as numbered entries (e.g. `001_the_protocol_wall.md`). These are narrative, diary-style write-ups capturing key moments, debugging sagas, and design insights. The user may ask for a new story entry at the end of a session — only write one when asked.
