@@ -33,17 +33,46 @@ function GameControl.onNewRoom()
     end
 end
 
+local function getSpawnRadius()
+    local minRadius = Config.SPAWN_RADIUS_MIN or 80
+    local maxRadius = Config.SPAWN_RADIUS_MAX or minRadius
+    if maxRadius < minRadius then
+        minRadius, maxRadius = maxRadius, minRadius
+    end
+    return minRadius, maxRadius
+end
+
+local function getRandomSpawnPos(room, centerPos)
+    local minRadius, maxRadius = getSpawnRadius()
+    local angle = math.random() * (math.pi * 2)
+    local radius = minRadius
+    if maxRadius > minRadius then
+        radius = minRadius + math.random() * (maxRadius - minRadius)
+    end
+
+    local candidate = Vector(
+        centerPos.X + math.cos(angle) * radius,
+        centerPos.Y + math.sin(angle) * radius
+    )
+    return room:FindFreePickupSpawnPosition(candidate, 0, true)
+end
+
 function GameControl.spawnEnemies(game)
     local room = game:GetRoom()
     local centerPos = room:GetCenterPos()
 
     for i = 1, Config.ENEMY_COUNT do
-        -- Offset enemies so they don't stack
-        local offset = Vector(
-            (i - 1) * 60 - (Config.ENEMY_COUNT - 1) * 30,
-            0
-        )
-        local spawnPos = Vector(centerPos.X + offset.X, centerPos.Y + offset.Y)
+        local spawnPos
+        if Config.RANDOM_SPAWN_POSITIONS then
+            spawnPos = getRandomSpawnPos(room, centerPos)
+        else
+            -- Offset enemies so they don't stack
+            local offset = Vector(
+                (i - 1) * 60 - (Config.ENEMY_COUNT - 1) * 30,
+                0
+            )
+            spawnPos = Vector(centerPos.X + offset.X, centerPos.Y + offset.Y)
+        end
 
         Isaac.Spawn(
             Config.ENEMY_TYPE,
@@ -65,6 +94,15 @@ function GameControl.configure(settings)
     end
     if settings.enemy_count then
         Config.ENEMY_COUNT = settings.enemy_count
+    end
+    if settings.random_spawn_positions ~= nil then
+        Config.RANDOM_SPAWN_POSITIONS = settings.random_spawn_positions
+    end
+    if settings.spawn_radius_min then
+        Config.SPAWN_RADIUS_MIN = settings.spawn_radius_min
+    end
+    if settings.spawn_radius_max then
+        Config.SPAWN_RADIUS_MAX = settings.spawn_radius_max
     end
     if settings.frame_skip then
         Config.FRAME_SKIP = settings.frame_skip

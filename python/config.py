@@ -25,6 +25,7 @@ class RewardConfig:
     pickup_collected: float = 2.0
     death: float = -50.0
     time_penalty: float = -0.1
+    survival_bonus: float = 0.0
     floor_cleared: float = 100.0
 
 
@@ -53,6 +54,10 @@ class PhaseConfig:
     enemy_variant: int = 0
     enemy_count: int = 1
     spawn_enemies: bool = True
+    random_spawn_positions: bool = False
+    spawn_radius_min: float = 80.0
+    spawn_radius_max: float = 160.0
+    disable_shooting: bool = False
 
 
 @dataclass

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Launch training pipeline
-# Usage: ./launch_training.sh [config_file] [--resume checkpoint_path]
+# Usage: ./launch_training.sh [config_file] [--resume checkpoint_path|latest|latest-compatible]
 
 set -e
 

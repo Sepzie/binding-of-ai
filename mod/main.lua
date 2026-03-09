@@ -44,6 +44,9 @@ local function handleMessage(message)
     if message.command == "configure" then
         if message.settings then
             GameControl.configure(message.settings)
+            if message.settings.disable_shooting ~= nil then
+                ActionInjector.setDisableShooting(message.settings.disable_shooting)
+            end
         end
     elseif message.command == "reset" then
         -- Manual/initial reset

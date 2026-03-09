@@ -4,12 +4,71 @@ import signal
 from pathlib import Path
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
+from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 
 from config import load_config
 from isaac_env import IsaacEnv
 from network import IsaacFeatureExtractor
+from utils import (
+    find_latest_checkpoint,
+    find_latest_compatible_checkpoint,
+    get_checkpoint_dir,
+    get_log_dir,
+    timestamped_checkpoint_stem,
+    validate_ppo_checkpoint,
+)
+
+
+def resolve_resume_path(resume: str | None, checkpoint_dir: Path, env) -> str | None:
+    """Resolve special resume modes to an actual checkpoint path."""
+    if resume is None:
+        return None
+
+    if resume == "latest":
+        checkpoint = find_latest_checkpoint(checkpoint_dir)
+        if checkpoint is None:
+            raise FileNotFoundError(f"No checkpoints found in {checkpoint_dir}")
+        return checkpoint
+
+    if resume == "latest-compatible":
+        checkpoint = find_latest_compatible_checkpoint(
+            checkpoint_dir,
+            validator=lambda candidate: validate_ppo_checkpoint(candidate, env),
+        )
+        if checkpoint is None:
+            raise FileNotFoundError(
+                f"No compatible checkpoints found in {checkpoint_dir}"
+            )
+        return checkpoint
+
+    resume_path = Path(resume).expanduser()
+    if resume_path.is_absolute():
+        return str(resume_path)
+
+    if resume_path.exists():
+        return str(resume_path.resolve())
+
+    checkpoint_candidate = checkpoint_dir / resume_path
+    if checkpoint_candidate.exists():
+        return str(checkpoint_candidate.resolve())
+
+    return str(resume_path.resolve())
+
+
+def save_named_checkpoint(model: PPO, checkpoint_dir: Path, stem: str) -> Path:
+    """Save a named checkpoint with a sortable timestamp prefix."""
+    checkpoint_path = checkpoint_dir / timestamped_checkpoint_stem(stem)
+    model.save(str(checkpoint_path))
+    return checkpoint_path.with_suffix(".zip")
+
+
+class TimestampedCheckpointCallback(CheckpointCallback):
+    """Save periodic checkpoints with a sortable timestamp prefix."""
+
+    def _checkpoint_path(self, checkpoint_type: str = "", extension: str = "") -> str:
+        stem = f"{self.name_prefix}_{checkpoint_type}{self.num_timesteps}_steps"
+        return str(Path(self.save_path) / f"{timestamped_checkpoint_stem(stem)}.{extension}")
 
 
 def train(config_path: str | None = None, resume: str | None = None):
@@ -32,6 +91,10 @@ def train(config_path: str | None = None, resume: str | None = None):
             "enemy_variant": config.phase.enemy_variant,
             "enemy_count": config.phase.enemy_count,
             "spawn_enemies": config.phase.spawn_enemies,
+            "random_spawn_positions": config.phase.random_spawn_positions,
+            "spawn_radius_min": config.phase.spawn_radius_min,
+            "spawn_radius_max": config.phase.spawn_radius_max,
+            "disable_shooting": config.phase.disable_shooting,
             "frame_skip": config.env.frame_skip,
             "max_episode_ticks": config.env.max_episode_steps,
         },
@@ -39,10 +102,10 @@ def train(config_path: str | None = None, resume: str | None = None):
 
     env = Monitor(isaac_env)
 
-    checkpoint_dir = Path("../checkpoints")
-    log_dir = Path("../logs")
-    checkpoint_dir.mkdir(exist_ok=True)
-    log_dir.mkdir(exist_ok=True)
+    checkpoint_dir = get_checkpoint_dir()
+    log_dir = get_log_dir()
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    log_dir.mkdir(parents=True, exist_ok=True)
 
     policy_kwargs = {
         "features_extractor_class": IsaacFeatureExtractor,
@@ -50,9 +113,10 @@ def train(config_path: str | None = None, resume: str | None = None):
         "net_arch": {"pi": [128, 64], "vf": [128, 64]},
     }
 
-    if resume:
-        model = PPO.load(resume, env=env)
-        log.info("Resumed from %s", resume)
+    resume_path = resolve_resume_path(resume, checkpoint_dir, env)
+    if resume_path:
+        model = PPO.load(resume_path, env=env)
+        log.info("Resumed from %s", resume_path)
     else:
         model = PPO(
             "MultiInputPolicy",
@@ -72,7 +136,7 @@ def train(config_path: str | None = None, resume: str | None = None):
             tensorboard_log=str(log_dir),
         )
 
-    checkpoint_callback = CheckpointCallback(
+    checkpoint_callback = TimestampedCheckpointCallback(
         save_freq=config.train.save_interval,
         save_path=str(checkpoint_dir),
         name_prefix="isaac_rl",
@@ -80,6 +144,15 @@ def train(config_path: str | None = None, resume: str | None = None):
 
     # Graceful SIGINT: save checkpoint before exiting
     interrupted = False
+    interrupt_checkpoint_path: Path | None = None
+
+    def _save_interrupt_checkpoint() -> Path:
+        nonlocal interrupt_checkpoint_path
+        if interrupt_checkpoint_path is None:
+            interrupt_checkpoint_path = save_named_checkpoint(
+                model, checkpoint_dir, "interrupted_model"
+            )
+        return interrupt_checkpoint_path
 
     def _on_sigint(sig, frame):
         nonlocal interrupted
@@ -87,11 +160,7 @@ def train(config_path: str | None = None, resume: str | None = None):
             log.warning("Second interrupt, forcing exit")
             raise SystemExit(1)
         interrupted = True
-        log.info("Interrupt received, saving checkpoint...")
-        model.save(str(checkpoint_dir / "interrupted_model"))
-        log.info("Saved to %s", checkpoint_dir / "interrupted_model.zip")
-        env.close()
-        raise SystemExit(0)
+        raise KeyboardInterrupt
 
     signal.signal(signal.SIGINT, _on_sigint)
 
@@ -101,12 +170,24 @@ def train(config_path: str | None = None, resume: str | None = None):
             callback=[checkpoint_callback],
             log_interval=config.train.log_interval,
         )
-        model.save(str(checkpoint_dir / "final_model"))
-        log.info("Training complete. Model saved to %s", checkpoint_dir / "final_model")
+        checkpoint_path = save_named_checkpoint(model, checkpoint_dir, "final_model")
+        log.info("Training complete. Model saved to %s", checkpoint_path)
+    except KeyboardInterrupt:
+        log.info("Interrupt received, saving checkpoint...")
+        checkpoint_path = _save_interrupt_checkpoint()
+        log.info("Saved to %s", checkpoint_path)
+        log.info("Training interrupted. Exiting cleanly.")
     except Exception:
+        if interrupted:
+            checkpoint_path = _save_interrupt_checkpoint()
+            log.warning(
+                "Interrupted during shutdown. Preserving interrupt checkpoint at %s",
+                checkpoint_path,
+            )
+            return
         log.exception("Training crashed, saving emergency checkpoint...")
-        model.save(str(checkpoint_dir / "crashed_model"))
-        log.info("Saved to %s", checkpoint_dir / "crashed_model.zip")
+        checkpoint_path = save_named_checkpoint(model, checkpoint_dir, "crashed_model")
+        log.info("Saved to %s", checkpoint_path)
         raise
     finally:
         env.close()
@@ -115,6 +196,11 @@ def train(config_path: str | None = None, resume: str | None = None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Isaac RL agent")
     parser.add_argument("--config", type=str, default=None, help="Path to YAML config")
-    parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Checkpoint path, filename under checkpoints/, or one of: latest, latest-compatible",
+    )
     args = parser.parse_args()
     train(args.config, args.resume)

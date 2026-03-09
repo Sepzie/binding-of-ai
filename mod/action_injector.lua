@@ -46,6 +46,13 @@ end
 -- DEBUG: set to true to disable shooting (for death testing)
 ActionInjector.DISABLE_SHOOTING = false
 
+function ActionInjector.setDisableShooting(disableShooting)
+    ActionInjector.DISABLE_SHOOTING = disableShooting and true or false
+    if ActionInjector.DISABLE_SHOOTING then
+        currentAction.shoot = 0
+    end
+end
+
 function ActionInjector.setAction(action)
     if action and action.move then
         currentAction.move = action.move

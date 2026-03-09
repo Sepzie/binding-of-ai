@@ -25,6 +25,11 @@ class RewardShaper:
         reward += self.config.time_penalty
         self.reward_components["time"] = self.config.time_penalty
 
+        # Reward staying alive while enemies are still present.
+        if state.get("enemy_count", 0) > 0 and not state.get("player_dead"):
+            reward += self.config.survival_bonus
+            self.reward_components["survival_bonus"] = self.config.survival_bonus
+
         # Damage dealt (enemy HP decreased)
         damage_reward = self._compute_damage_dealt(state)
         reward += damage_reward
