@@ -13,7 +13,13 @@ log = logging.getLogger("IsaacEnv")
 
 
 class IsaacEnv(gym.Env):
-    """Gymnasium environment wrapper for The Binding of Isaac via TCP."""
+    """Gymnasium environment wrapper for The Binding of Isaac via TCP.
+
+    Protocol: Lua owns the game clock and episode lifecycle.
+    - Lua streams observations with episode_id, terminal, terminal_reason
+    - Lua restarts immediately on terminal, increments episode_id
+    - Python sends actions (fire-and-forget), syncs on episode_id for reset
+    """
 
     metadata = {"render_modes": []}
 
@@ -46,18 +52,19 @@ class IsaacEnv(gym.Env):
         self.sock_file = None
         self.step_count = 0
         self.last_state = None
-        self._had_enemies = False
         self._episode_num = 0
+        self._last_episode_id = 0  # tracks Lua's episode_id
 
         # Throughput tracking
         self._total_steps = 0
         self._start_time = None
-        self._throughput_interval = 1000  # log every N steps
+        self._throughput_interval = 1000
 
         # Episode tracking
         self._ep_reward = 0.0
         self._ep_kills = 0
         self._ep_damage_taken = 0
+        self._last_terminal_reason = None
 
     def _connect(self):
         if self.sock is not None:
@@ -78,17 +85,13 @@ class IsaacEnv(gym.Env):
         return json.loads(line)
 
     def _state_to_obs(self, state: dict) -> dict:
-        # Grid observation
         grid = np.array(state["grid"], dtype=np.float32)
-        # Should be (channels, height, width)
         if grid.shape != (self.env_cfg.grid_channels, self.env_cfg.grid_height, self.env_cfg.grid_width):
-            # Try to reshape if flat
             grid = np.zeros(
                 (self.env_cfg.grid_channels, self.env_cfg.grid_height, self.env_cfg.grid_width),
                 dtype=np.float32,
             )
 
-        # Player state vector
         p = state.get("player", {})
         player = np.array([
             p.get("hp_red", 0),
@@ -109,18 +112,20 @@ class IsaacEnv(gym.Env):
 
         return {"grid": grid, "player": player}
 
-    def _drain_and_receive(self, predicate, timeout=60.0):
-        """Drain buffered states until we get one matching predicate.
-        Handles timeouts gracefully (game may be restarting)."""
+    def _wait_for_new_episode(self, timeout=120.0):
+        """Wait for first non-terminal observation of a new episode_id."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
                 state = self._receive()
-                if predicate(state):
+                eid = state.get("episode_id", 0)
+                if eid > self._last_episode_id and not state.get("terminal", False):
                     return state
             except (TimeoutError, OSError):
                 continue
-        raise ConnectionError("Timed out waiting for valid state after reset")
+        raise ConnectionError(
+            f"Timed out waiting for new episode (last_id={self._last_episode_id})"
+        )
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -128,9 +133,7 @@ class IsaacEnv(gym.Env):
 
         # Log previous episode summary
         if self._episode_num > 0:
-            reason = "death" if (self.last_state and self.last_state.get("player_dead")) else "cleared"
-            if self.step_count >= self.env_cfg.max_episode_steps:
-                reason = "timeout"
+            reason = self._last_terminal_reason or "unknown"
             log.info(
                 "EP %d ended (%s) | steps=%d reward=%.1f kills=%d dmg_taken=%d",
                 self._episode_num, reason, self.step_count,
@@ -139,30 +142,25 @@ class IsaacEnv(gym.Env):
 
         self._episode_num += 1
         self.step_count = 0
-        self._had_enemies = False
         self._ep_reward = 0.0
         self._ep_kills = 0
         self._ep_damage_taken = 0
+        self._last_terminal_reason = None
         self.reward_shaper.reset()
 
-        # Try to drain any buffered state (may timeout if game is on death screen)
-        try:
-            self._receive()
-        except (TimeoutError, OSError):
-            log.debug("No buffered state on reset (death screen?)")
+        if self._last_episode_id == 0:
+            # First episode: send reset to force a clean start with configured settings
+            self._send({"command": "reset"})
+            log.debug("Initial reset sent, waiting for first episode...")
 
-        # Send reset command
-        reset_cmd = {"command": "reset"}
-        self._send(reset_cmd)
-        log.debug("Reset command sent, waiting for game restart...")
-
-        # Wait for post-reset state (mod reads reset via MC_POST_RENDER during death screen)
-        state = self._drain_and_receive(
-            lambda s: not s.get("player_dead", False)
-        )
+        # Wait for observation with a new episode_id (Lua auto-restarts)
+        state = self._wait_for_new_episode()
+        self._last_episode_id = state["episode_id"]
         self.last_state = state
-        log.debug("EP %d started | enemies=%d tick=%d",
-                  self._episode_num, state.get("enemy_count", 0), state.get("tick", 0))
+
+        log.debug("EP %d started (game ep %d) | enemies=%d",
+                  self._episode_num, self._last_episode_id,
+                  state.get("enemy_count", 0))
 
         obs = self._state_to_obs(state)
         info = {"state": state, "reward_components": {}}
@@ -176,40 +174,42 @@ class IsaacEnv(gym.Env):
         elif self._total_steps % self._throughput_interval == 0:
             elapsed = time.monotonic() - self._start_time
             sps = self._total_steps / elapsed
-            print(f"[IsaacEnv] {self._total_steps} steps, {sps:.1f} steps/sec")
+            log.info("%d steps, %.1f steps/sec", self._total_steps, sps)
 
         move_action = int(action[0])
         shoot_action = int(action[1])
 
-        # Send action to game
+        # Send action (fire-and-forget, Lua latches it)
         self._send({
-            "command": "step",
+            "command": "action",
             "action": {"move": move_action, "shoot": shoot_action},
         })
 
-        # Receive next state
+        # Receive next state from Lua's stream
         state = self._receive()
 
         # Compute reward
         reward = self.reward_shaper.compute(state)
         self._ep_reward += reward
 
-        # Track episode stats from reward components
+        # Track episode stats
         rc = self.reward_shaper.reward_components
         if rc.get("kills", 0) > 0:
             self._ep_kills += int(rc["kills"] / self.config.reward.enemy_killed)
         if rc.get("damage_taken", 0) < 0:
             self._ep_damage_taken += 1
 
-        # Track whether enemies have appeared
-        if state.get("enemy_count", 0) > 0:
-            self._had_enemies = True
+        # Terminal from Lua's detection
+        terminated = state.get("terminal", False)
+        terminal_reason = state.get("terminal_reason")
 
-        # Check termination: player died, or all enemies killed after they spawned
-        terminated = state.get("player_dead", False)
-        if not terminated and self._had_enemies and state.get("enemy_count", 0) == 0:
-            terminated = True
-        truncated = self.step_count >= self.env_cfg.max_episode_steps
+        # Gymnasium convention: timeout is truncation, not termination
+        truncated = terminal_reason == "timeout"
+        if truncated:
+            terminated = False
+
+        if terminated or truncated:
+            self._last_terminal_reason = terminal_reason
 
         obs = self._state_to_obs(state)
         info = {

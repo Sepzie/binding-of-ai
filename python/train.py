@@ -33,6 +33,7 @@ def train(config_path: str | None = None, resume: str | None = None):
             "enemy_count": config.phase.enemy_count,
             "spawn_enemies": config.phase.spawn_enemies,
             "frame_skip": config.env.frame_skip,
+            "max_episode_ticks": config.env.max_episode_steps,
         },
     })
 
