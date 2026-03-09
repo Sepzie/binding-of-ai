@@ -138,6 +138,31 @@ function TcpServer:receiveActionSocket()
     return nil
 end
 
+-- Non-blocking poll: returns one buffered message or nil
+function TcpServer:pollAction()
+    if self.use_file_ipc then
+        return self:receiveActionFile()
+    end
+    if not self.client then
+        return nil
+    end
+    self.client:settimeout(0)
+    local data, err = self.client:receive("*l")
+    self.client:settimeout(self.timeout)
+    if data then
+        local ok, msg = pcall(json.decode, data)
+        if ok then
+            return msg
+        else
+            Isaac.ConsoleOutput("IsaacRL: JSON decode error\n")
+            return nil
+        end
+    elseif err == "closed" then
+        self:handleDisconnect()
+    end
+    return nil
+end
+
 function TcpServer:receiveActionFile()
     local f = io.open(self.action_file, "r")
     if not f then

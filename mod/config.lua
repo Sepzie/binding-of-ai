@@ -2,7 +2,7 @@ local Config = {}
 
 Config.TCP_HOST = "127.0.0.1"
 Config.TCP_PORT = 9999
-Config.TCP_TIMEOUT = 1.0  -- block until Python responds (keeps state in sync)
+Config.TCP_TIMEOUT = 0.1  -- short timeout (non-blocking design, only affects send backpressure)
 
 -- How many game ticks between sending state / receiving actions
 Config.FRAME_SKIP = 1
@@ -10,6 +10,9 @@ Config.FRAME_SKIP = 1
 -- Room grid dimensions (standard room)
 Config.GRID_WIDTH = 13
 Config.GRID_HEIGHT = 7
+
+-- Episode limits (0 = no limit; set via configure command)
+Config.MAX_EPISODE_TICKS = 3000
 
 -- Phase 1a defaults
 Config.SPAWN_ENEMIES = true

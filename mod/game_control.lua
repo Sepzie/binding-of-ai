@@ -72,6 +72,9 @@ function GameControl.configure(settings)
     if settings.spawn_enemies ~= nil then
         Config.SPAWN_ENEMIES = settings.spawn_enemies
     end
+    if settings.max_episode_ticks then
+        Config.MAX_EPISODE_TICKS = settings.max_episode_ticks
+    end
 end
 
 return GameControl
