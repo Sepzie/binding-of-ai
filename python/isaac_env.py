@@ -292,6 +292,33 @@ class IsaacEnv(gym.Env):
 
         return np.concatenate((move_mask, shoot_mask))
 
+    def pause_game(self):
+        """Pause the game (used between rollout collection and PPO update)."""
+        self._send({"command": "pause"})
+
+    def resume_and_flush(self):
+        """Resume the game and flush stale TCP data from the buffer."""
+        self._send({"command": "resume"})
+        flushed_bytes = 0
+        self.sock.setblocking(False)
+        try:
+            while True:
+                data = self.sock.recv(65536)
+                if not data:
+                    break
+                flushed_bytes += len(data)
+        except (BlockingIOError, OSError):
+            pass
+        self.sock.setblocking(True)
+        self.sock.settimeout(self.env_cfg.action_timeout)
+        self.sock_file = self.sock.makefile("r")
+        return flushed_bytes
+
+    def configure_game(self, settings: dict):
+        """Send game configuration to the Lua mod."""
+        self._connect()
+        self._send({"command": "configure", "settings": settings})
+
     def close(self):
         if self.sock_file:
             self.sock_file.close()

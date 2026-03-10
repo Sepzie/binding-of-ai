@@ -15,6 +15,8 @@ class EnvConfig:
     frame_skip: int = 1
     max_episode_steps: int = 3000
     action_timeout: float = 5.0
+    n_workers: int = 1
+    base_port: int = 9999
 
 
 @dataclass

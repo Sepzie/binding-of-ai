@@ -1,7 +1,7 @@
 import argparse
 import logging
 import signal
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 try:
@@ -13,6 +13,7 @@ except ImportError as exc:
     ) from exc
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 
 from checkpoint_manager import CheckpointManager
 from config import load_config
@@ -108,35 +109,31 @@ class ManagedCheckpointCallback(BaseCallback):
 
 
 class GamePauseCallback(BaseCallback):
-    """Pause the game during PPO training to prevent stale state buffering."""
+    """Pause the game during PPO training to prevent stale state buffering.
 
-    def __init__(self, isaac_env: "IsaacEnv", verbose=0):
+    Works with both single IsaacEnv and vectorized (SubprocVecEnv/DummyVecEnv) envs.
+    """
+
+    def __init__(self, env, verbose=0):
         super().__init__(verbose)
-        self.isaac_env = isaac_env
+        self.env = env
+        self._is_vec = hasattr(env, "env_method")
 
     def _on_rollout_end(self) -> None:
-        self.isaac_env._send({"command": "pause"})
+        if self._is_vec:
+            self.env.env_method("pause_game")
+        else:
+            self.env.unwrapped.pause_game()
 
     def _on_rollout_start(self) -> None:
-        self.isaac_env._send({"command": "resume"})
-        # Flush stale states from TCP buffer and count discarded bytes
-        flushed_bytes = 0
-        self.isaac_env.sock.setblocking(False)
-        try:
-            while True:
-                data = self.isaac_env.sock.recv(65536)
-                if not data:
-                    break
-                flushed_bytes += len(data)
-        except (BlockingIOError, OSError):
-            pass
-        self.isaac_env.sock.setblocking(True)
-        self.isaac_env.sock.settimeout(self.isaac_env.env_cfg.action_timeout)
-        # Reset the buffered reader so it doesn't hold partial stale data
-        self.isaac_env.sock_file = self.isaac_env.sock.makefile("r")
-        if flushed_bytes > 0:
+        if self._is_vec:
+            results = self.env.env_method("resume_and_flush")
+            total_flushed = sum(r for r in results if r)
+        else:
+            total_flushed = self.env.unwrapped.resume_and_flush()
+        if total_flushed > 0:
             log = logging.getLogger("train")
-            log.info("Flushed %d stale bytes from TCP buffer at rollout start", flushed_bytes)
+            log.info("Flushed %d stale bytes from TCP buffer(s) at rollout start", total_flushed)
 
     def _on_step(self) -> bool:
         return True
@@ -180,6 +177,40 @@ class IsaacMetricsCallback(BaseCallback):
         return True
 
 
+def _build_game_settings(config):
+    """Build the settings dict sent to the Lua mod's configure command."""
+    return {
+        "enemy_type": config.phase.enemy_type,
+        "enemy_variant": config.phase.enemy_variant,
+        "enemy_count": config.phase.enemy_count,
+        "enemy_collision_damage": config.phase.enemy_collision_damage,
+        "spawn_pickup_penny": config.phase.spawn_pickup_penny,
+        "pickup_random_position": config.phase.pickup_random_position,
+        "pickup_offset_x": config.phase.pickup_offset_x,
+        "pickup_offset_y": config.phase.pickup_offset_y,
+        "pickup_radius_min": config.phase.pickup_radius_min,
+        "pickup_radius_max": config.phase.pickup_radius_max,
+        "terminal_on_pickup": config.phase.terminal_on_pickup,
+        "spawn_enemies": config.phase.spawn_enemies,
+        "random_spawn_positions": config.phase.random_spawn_positions,
+        "spawn_radius_min": config.phase.spawn_radius_min,
+        "spawn_radius_max": config.phase.spawn_radius_max,
+        "disable_shooting": config.phase.disable_shooting,
+        "frame_skip": config.env.frame_skip,
+        "max_episode_ticks": config.env.max_episode_steps,
+    }
+
+
+def _make_env(config, port, game_settings):
+    """Factory that creates a single IsaacEnv with the given port."""
+    def _init():
+        worker_config = replace(config, env=replace(config.env, port=port))
+        env = IsaacEnv(worker_config)
+        env.configure_game(game_settings)
+        return Monitor(env)
+    return _init
+
+
 def train(config_path: str | None = None, resume: str | None = None):
     log = logging.getLogger("train")
     logging.basicConfig(
@@ -188,36 +219,19 @@ def train(config_path: str | None = None, resume: str | None = None):
         datefmt="%H:%M:%S",
     )
     config = load_config(config_path)
+    n_workers = config.env.n_workers
+    base_port = config.env.base_port
+    game_settings = _build_game_settings(config)
 
-    isaac_env = IsaacEnv(config)
-
-    # Configure the game settings before wrapping
-    isaac_env._connect()
-    isaac_env._send({
-        "command": "configure",
-        "settings": {
-            "enemy_type": config.phase.enemy_type,
-            "enemy_variant": config.phase.enemy_variant,
-            "enemy_count": config.phase.enemy_count,
-            "enemy_collision_damage": config.phase.enemy_collision_damage,
-            "spawn_pickup_penny": config.phase.spawn_pickup_penny,
-            "pickup_random_position": config.phase.pickup_random_position,
-            "pickup_offset_x": config.phase.pickup_offset_x,
-            "pickup_offset_y": config.phase.pickup_offset_y,
-            "pickup_radius_min": config.phase.pickup_radius_min,
-            "pickup_radius_max": config.phase.pickup_radius_max,
-            "terminal_on_pickup": config.phase.terminal_on_pickup,
-            "spawn_enemies": config.phase.spawn_enemies,
-            "random_spawn_positions": config.phase.random_spawn_positions,
-            "spawn_radius_min": config.phase.spawn_radius_min,
-            "spawn_radius_max": config.phase.spawn_radius_max,
-            "disable_shooting": config.phase.disable_shooting,
-            "frame_skip": config.env.frame_skip,
-            "max_episode_ticks": config.env.max_episode_steps,
-        },
-    })
-
-    env = Monitor(isaac_env)
+    if n_workers > 1:
+        log.info("Starting vectorized training with %d workers (ports %d-%d)",
+                 n_workers, base_port, base_port + n_workers - 1)
+        env_fns = [_make_env(config, base_port + i, game_settings) for i in range(n_workers)]
+        env = SubprocVecEnv(env_fns)
+    else:
+        isaac_env = IsaacEnv(config)
+        isaac_env.configure_game(game_settings)
+        env = Monitor(isaac_env)
 
     checkpoint_dir = get_checkpoint_dir()
     log_dir = get_log_dir()
@@ -279,7 +293,7 @@ def train(config_path: str | None = None, resume: str | None = None):
         save_freq=config.train.save_interval,
     )
 
-    callbacks = [checkpoint_callback, GamePauseCallback(isaac_env)]
+    callbacks = [checkpoint_callback, GamePauseCallback(env)]
     if use_wandb:
         callbacks.append(IsaacMetricsCallback())
 
