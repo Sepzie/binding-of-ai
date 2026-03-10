@@ -30,7 +30,7 @@ phase:
   enemy_count: 1
   spawn_pickup_penny: true
   pickup_random_position: false
-  pickup_offset_x: 180.0
+  pickup_offset_x: 100.0
   pickup_offset_y: 0.0
   terminal_on_pickup: true
   spawn_enemies: true

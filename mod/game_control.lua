@@ -120,14 +120,29 @@ function GameControl.spawnPenny(game)
         spawnPos = room:FindFreePickupSpawnPosition(targetPos, 0, true)
     end
 
-    Isaac.Spawn(
-        EntityType.ENTITY_PICKUP,
-        PickupVariant.PICKUP_COIN,
-        CoinSubType.COIN_PENNY,
+    local pickupType = (EntityType and EntityType.ENTITY_PICKUP) or 5
+    local coinVariant = (PickupVariant and PickupVariant.PICKUP_COIN) or 20
+    local pennySubType = (CoinSubType and CoinSubType.COIN_PENNY) or 1
+
+    local spawned = Isaac.Spawn(
+        pickupType,
+        coinVariant,
+        pennySubType,
         spawnPos,
         Vector(0, 0),
         nil
     )
+    if spawned then
+        Isaac.ConsoleOutput(
+            string.format(
+                "IsaacRL: Spawned penny at (%.1f, %.1f)\n",
+                spawnPos.X,
+                spawnPos.Y
+            )
+        )
+    else
+        Isaac.ConsoleOutput("IsaacRL: Failed to spawn penny\n")
+    end
 end
 
 function GameControl.configure(settings)
