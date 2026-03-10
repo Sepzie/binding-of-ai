@@ -28,6 +28,13 @@ class RewardConfig:
     time_penalty: float = -0.1
     survival_bonus: float = 0.0
     floor_cleared: float = 100.0
+    nav_progress_scale: float = 0.0
+    nav_reach_bonus: float = 0.0
+    nav_reach_radius: float = 20.0
+    nav_target_x: float | None = None
+    nav_target_y: float | None = None
+    nav_target_dx: float = 0.0
+    nav_target_dy: float = 0.0
 
 
 @dataclass

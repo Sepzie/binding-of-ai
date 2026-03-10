@@ -1,3 +1,5 @@
+import math
+
 from config import RewardConfig
 
 
@@ -8,10 +10,14 @@ class RewardShaper:
         self.config = config
         self.prev_state = None
         self.reward_components = {}
+        self._nav_target: tuple[float, float] | None = None
+        self._nav_reached = False
 
     def reset(self):
         self.prev_state = None
         self.reward_components = {}
+        self._nav_target = None
+        self._nav_reached = False
 
     def compute(self, state: dict) -> float:
         reward = 0.0
@@ -44,6 +50,13 @@ class RewardShaper:
         damage_taken_reward = self._compute_damage_taken(state)
         reward += damage_taken_reward
         self.reward_components["damage_taken"] = damage_taken_reward
+
+        # Navigation smoke-test objective (optional)
+        nav_reward, nav_progress_reward, nav_reach_bonus = self._compute_nav_reward(state)
+        reward += nav_reward
+        if self._nav_target is not None:
+            self.reward_components["nav_progress"] = nav_progress_reward
+            self.reward_components["nav_reach_bonus"] = nav_reach_bonus
 
         # Room cleared
         if state.get("room_cleared") and not self.prev_state.get("room_cleared"):
@@ -96,3 +109,58 @@ class RewardShaper:
             + player.get("hp_soul", 0)
             + player.get("hp_black", 0)
         )
+
+    def _compute_nav_reward(self, state: dict) -> tuple[float, float, float]:
+        nav_enabled = (
+            self.config.nav_progress_scale != 0.0
+            or self.config.nav_reach_bonus != 0.0
+        )
+        if not nav_enabled:
+            return 0.0, 0.0, 0.0
+
+        if self._nav_target is None:
+            self._nav_target = self._resolve_nav_target(state)
+        if self._nav_target is None:
+            return 0.0, 0.0, 0.0
+
+        prev_pos = self._player_position(self.prev_state)
+        curr_pos = self._player_position(state)
+        if prev_pos is None or curr_pos is None:
+            return 0.0, 0.0, 0.0
+
+        prev_dist = math.dist(prev_pos, self._nav_target)
+        curr_dist = math.dist(curr_pos, self._nav_target)
+
+        nav_progress_reward = (prev_dist - curr_dist) * self.config.nav_progress_scale
+
+        nav_reach_bonus = 0.0
+        if (
+            not self._nav_reached
+            and curr_dist <= self.config.nav_reach_radius
+        ):
+            nav_reach_bonus = self.config.nav_reach_bonus
+            self._nav_reached = True
+
+        return nav_progress_reward + nav_reach_bonus, nav_progress_reward, nav_reach_bonus
+
+    def _resolve_nav_target(self, state: dict) -> tuple[float, float] | None:
+        if self.config.nav_target_x is not None and self.config.nav_target_y is not None:
+            return float(self.config.nav_target_x), float(self.config.nav_target_y)
+
+        player_pos = self._player_position(state)
+        if player_pos is None:
+            return None
+
+        return (
+            player_pos[0] + self.config.nav_target_dx,
+            player_pos[1] + self.config.nav_target_dy,
+        )
+
+    @staticmethod
+    def _player_position(state: dict | None) -> tuple[float, float] | None:
+        if not state:
+            return None
+        pos = state.get("player", {}).get("position")
+        if not isinstance(pos, (list, tuple)) or len(pos) != 2:
+            return None
+        return float(pos[0]), float(pos[1])
