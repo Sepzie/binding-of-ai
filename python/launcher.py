@@ -35,15 +35,16 @@ def launch_worker(worker_id: int, port: int) -> subprocess.Popen:
     cmd = [
         SANDBOXIE_START,
         f"/box:{box}",
-        "/silent",
-        "/nosbiectrl",
         f"/env:ISAAC_RL_PORT={port}",
         f"/env:ISAAC_RL_INSTANCE={worker_id}",
         STEAM_EXE,
-        f"-applaunch {ISAAC_APP_ID}",
+        "-applaunch",
+        ISAAC_APP_ID,
     ]
+    # Note: -offline flag for Steam doesn't work reliably via CLI.
+    # Use Sandboxie network blocking if offline mode is needed.
     log.info("Launching worker %d in sandbox %s on port %d", worker_id, box, port)
-    log.debug("Command: %s", " ".join(cmd))
+    log.debug("Command: %s", cmd)
     proc = subprocess.Popen(cmd)
     return proc
 
@@ -109,10 +110,11 @@ def main():
             all_ready = False
 
     if all_ready:
-        log.info("All %d workers ready. Start training with:", args.workers)
+        log.info("All %d workers ready! Start training with:", args.workers)
         log.info("  python train.py --config <config.yaml>")
         log.info("  (set env.n_workers=%d and env.base_port=%d in config)",
                  args.workers, args.base_port)
+        log.info("NOTE: You must manually start a run in each Isaac window first.")
     else:
         log.error("Some workers failed to start. Check Sandboxie and game logs.")
         sys.exit(1)
