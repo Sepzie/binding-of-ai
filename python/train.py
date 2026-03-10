@@ -1,6 +1,7 @@
 import argparse
 import logging
 import signal
+from dataclasses import asdict
 from pathlib import Path
 
 from stable_baselines3 import PPO
@@ -107,6 +108,18 @@ def train(config_path: str | None = None, resume: str | None = None):
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
+    # Wandb init
+    use_wandb = config.wandb.enabled
+    if use_wandb:
+        import wandb
+        wandb.init(
+            project=config.wandb.project,
+            entity=config.wandb.entity,
+            name=config.wandb.run_name,
+            tags=config.wandb.tags,
+            config=asdict(config),
+        )
+
     policy_kwargs = {
         "features_extractor_class": IsaacFeatureExtractor,
         "features_extractor_kwargs": {"features_dim": 256},
@@ -142,6 +155,15 @@ def train(config_path: str | None = None, resume: str | None = None):
         name_prefix="isaac_rl",
     )
 
+    callbacks = [checkpoint_callback]
+    if use_wandb:
+        from wandb.integration.stable_baselines3 import WandbCallback
+        callbacks.append(WandbCallback(
+            model_save_path=str(checkpoint_dir),
+            model_save_freq=config.train.save_interval,
+            verbose=0,
+        ))
+
     # Graceful SIGINT: save checkpoint before exiting
     interrupted = False
     interrupt_checkpoint_path: Path | None = None
@@ -167,7 +189,7 @@ def train(config_path: str | None = None, resume: str | None = None):
     try:
         model.learn(
             total_timesteps=config.train.total_timesteps,
-            callback=[checkpoint_callback],
+            callback=callbacks,
             log_interval=config.train.log_interval,
         )
         checkpoint_path = save_named_checkpoint(model, checkpoint_dir, "final_model")
@@ -191,6 +213,9 @@ def train(config_path: str | None = None, resume: str | None = None):
         raise
     finally:
         env.close()
+        if use_wandb:
+            import wandb
+            wandb.finish()
 
 
 if __name__ == "__main__":

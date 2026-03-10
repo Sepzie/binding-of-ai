@@ -1,6 +1,7 @@
 import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 
 @dataclass
@@ -61,11 +62,21 @@ class PhaseConfig:
 
 
 @dataclass
+class WandbConfig:
+    enabled: bool = False
+    project: str = "binding-of-ai"
+    entity: Optional[str] = None
+    run_name: Optional[str] = None
+    tags: list = field(default_factory=list)
+
+
+@dataclass
 class Config:
     env: EnvConfig = field(default_factory=EnvConfig)
     reward: RewardConfig = field(default_factory=RewardConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
     phase: PhaseConfig = field(default_factory=PhaseConfig)
+    wandb: WandbConfig = field(default_factory=WandbConfig)
 
 
 def load_config(path: str | None = None) -> Config:
@@ -85,6 +96,7 @@ def load_config(path: str | None = None) -> Config:
         ("reward", RewardConfig),
         ("train", TrainConfig),
         ("phase", PhaseConfig),
+        ("wandb", WandbConfig),
     ]:
         if section_name in data:
             section = getattr(config, section_name)

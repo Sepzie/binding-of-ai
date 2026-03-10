@@ -66,6 +66,11 @@ class IsaacEnv(gym.Env):
         self._ep_damage_taken = 0
         self._last_terminal_reason = None
 
+        # Speed diagnostics
+        self._last_episode_tick = 0
+        self._ep_frames_dropped = 0
+        self._ep_step_latencies = []
+
     def _connect(self):
         if self.sock is not None:
             return
@@ -134,10 +139,16 @@ class IsaacEnv(gym.Env):
         # Log previous episode summary
         if self._episode_num > 0:
             reason = self._last_terminal_reason or "unknown"
+            avg_latency = (
+                sum(self._ep_step_latencies) / len(self._ep_step_latencies) * 1000
+                if self._ep_step_latencies else 0.0
+            )
             log.info(
-                "EP %d ended (%s) | steps=%d reward=%.1f kills=%d dmg_taken=%d",
+                "EP %d ended (%s) | steps=%d reward=%.1f kills=%d dmg_taken=%d "
+                "frames_dropped=%d avg_latency=%.1fms",
                 self._episode_num, reason, self.step_count,
                 self._ep_reward, self._ep_kills, self._ep_damage_taken,
+                self._ep_frames_dropped, avg_latency,
             )
 
         self._episode_num += 1
@@ -146,6 +157,9 @@ class IsaacEnv(gym.Env):
         self._ep_kills = 0
         self._ep_damage_taken = 0
         self._last_terminal_reason = None
+        self._last_episode_tick = 0
+        self._ep_frames_dropped = 0
+        self._ep_step_latencies = []
         self.reward_shaper.reset()
 
         if self._last_episode_id == 0:
@@ -185,8 +199,19 @@ class IsaacEnv(gym.Env):
             "action": {"move": move_action, "shoot": shoot_action},
         })
 
-        # Receive next state from Lua's stream
+        # Receive next state from Lua's stream (measure wait time)
+        t_before = time.monotonic()
         state = self._receive()
+        step_latency = time.monotonic() - t_before
+        self._ep_step_latencies.append(step_latency)
+
+        # Detect dropped frames via episode_tick gaps
+        episode_tick = state.get("episode_tick", 0)
+        if self._last_episode_tick > 0 and episode_tick > 0:
+            expected = self._last_episode_tick + 1
+            if episode_tick > expected:
+                self._ep_frames_dropped += episode_tick - expected
+        self._last_episode_tick = episode_tick
 
         # Compute reward
         reward = self.reward_shaper.compute(state)
@@ -215,6 +240,8 @@ class IsaacEnv(gym.Env):
         info = {
             "state": state,
             "reward_components": self.reward_shaper.reward_components.copy(),
+            "step_latency": step_latency,
+            "frames_dropped": self._ep_frames_dropped,
         }
 
         self.last_state = state

@@ -115,6 +115,7 @@ function mod:onUpdate()
 
     -- Add episode metadata
     state.episode_id = episodeId
+    state.episode_tick = episodeTick
     state.terminal = terminal
     state.terminal_reason = terminalReason
 
