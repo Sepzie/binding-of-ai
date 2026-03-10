@@ -4,7 +4,13 @@ import signal
 from dataclasses import asdict
 from pathlib import Path
 
-from stable_baselines3 import PPO
+try:
+    from sb3_contrib import MaskablePPO as PPO
+except ImportError as exc:
+    raise ImportError(
+        "sb3-contrib is required for action masking. "
+        "Install dependencies from python/requirements.txt."
+    ) from exc
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 

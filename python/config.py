@@ -59,6 +59,7 @@ class PhaseConfig:
     spawn_radius_min: float = 80.0
     spawn_radius_max: float = 160.0
     disable_shooting: bool = False
+    mask_shoot: bool = False
 
 
 @dataclass

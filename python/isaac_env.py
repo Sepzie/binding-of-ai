@@ -280,6 +280,18 @@ class IsaacEnv(gym.Env):
         self.last_state = state
         return obs, reward, terminated, truncated, info
 
+    def action_masks(self) -> np.ndarray:
+        """Return flattened action mask for MultiDiscrete([9, 5])."""
+        move_mask = np.ones(9, dtype=bool)
+
+        if self.config.phase.mask_shoot:
+            # Allow only "don't shoot" (0); mask shoot directions 1..4.
+            shoot_mask = np.array([True, False, False, False, False], dtype=bool)
+        else:
+            shoot_mask = np.ones(5, dtype=bool)
+
+        return np.concatenate((move_mask, shoot_mask))
+
     def close(self):
         if self.sock_file:
             self.sock_file.close()

@@ -85,6 +85,11 @@ def find_latest_compatible_checkpoint(
 
 def validate_ppo_checkpoint(checkpoint_path: Path, env) -> None:
     """Raise if a checkpoint cannot be loaded for the provided environment."""
-    from stable_baselines3 import PPO
+    try:
+        from sb3_contrib import MaskablePPO as PPO
+    except ImportError as exc:
+        raise ImportError(
+            "sb3-contrib is required to validate checkpoints for training."
+        ) from exc
 
     PPO.load(str(checkpoint_path), env=env)

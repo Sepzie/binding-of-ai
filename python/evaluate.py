@@ -1,7 +1,14 @@
 import argparse
 import numpy as np
 
-from stable_baselines3 import PPO
+try:
+    from sb3_contrib import MaskablePPO as PPO
+    from sb3_contrib.common.maskable.utils import get_action_masks
+except ImportError as exc:
+    raise ImportError(
+        "sb3-contrib is required for masked-policy evaluation. "
+        "Install dependencies from python/requirements.txt."
+    ) from exc
 
 from config import load_config
 from isaac_env import IsaacEnv
@@ -25,7 +32,8 @@ def evaluate(model_path: str, config_path: str | None = None, n_episodes: int = 
         done = False
 
         while not done:
-            action, _ = model.predict(obs, deterministic=True)
+            action_masks = get_action_masks(env)
+            action, _ = model.predict(obs, action_masks=action_masks, deterministic=True)
             obs, reward, terminated, truncated, info = env.step(action)
             total_reward += reward
             steps += 1
