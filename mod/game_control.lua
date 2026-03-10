@@ -74,7 +74,7 @@ function GameControl.spawnEnemies(game)
             spawnPos = Vector(centerPos.X + offset.X, centerPos.Y + offset.Y)
         end
 
-        Isaac.Spawn(
+        local enemy = Isaac.Spawn(
             Config.ENEMY_TYPE,
             Config.ENEMY_VARIANT,
             0,          -- subtype
@@ -82,6 +82,9 @@ function GameControl.spawnEnemies(game)
             Vector(0, 0), -- velocity
             nil         -- spawner
         )
+        if enemy and Config.ENEMY_COLLISION_DAMAGE ~= nil then
+            enemy.CollisionDamage = Config.ENEMY_COLLISION_DAMAGE
+        end
     end
 end
 
@@ -94,6 +97,9 @@ function GameControl.configure(settings)
     end
     if settings.enemy_count then
         Config.ENEMY_COUNT = settings.enemy_count
+    end
+    if settings.enemy_collision_damage ~= nil then
+        Config.ENEMY_COLLISION_DAMAGE = settings.enemy_collision_damage
     end
     if settings.random_spawn_positions ~= nil then
         Config.RANDOM_SPAWN_POSITIONS = settings.random_spawn_positions

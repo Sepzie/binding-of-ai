@@ -61,6 +61,7 @@ class PhaseConfig:
     enemy_type: int = 10
     enemy_variant: int = 0
     enemy_count: int = 1
+    enemy_collision_damage: float | None = None
     spawn_enemies: bool = True
     random_spawn_positions: bool = False
     spawn_radius_min: float = 80.0

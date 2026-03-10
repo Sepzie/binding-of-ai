@@ -19,6 +19,7 @@ Config.SPAWN_ENEMIES = true
 Config.ENEMY_TYPE = 10      -- EntityType 10 = Gaper
 Config.ENEMY_VARIANT = 0
 Config.ENEMY_COUNT = 1
+Config.ENEMY_COLLISION_DAMAGE = nil
 Config.RANDOM_SPAWN_POSITIONS = false
 Config.SPAWN_RADIUS_MIN = 80
 Config.SPAWN_RADIUS_MAX = 160

@@ -170,6 +170,7 @@ def train(config_path: str | None = None, resume: str | None = None):
             "enemy_type": config.phase.enemy_type,
             "enemy_variant": config.phase.enemy_variant,
             "enemy_count": config.phase.enemy_count,
+            "enemy_collision_damage": config.phase.enemy_collision_damage,
             "spawn_enemies": config.phase.spawn_enemies,
             "random_spawn_positions": config.phase.random_spawn_positions,
             "spawn_radius_min": config.phase.spawn_radius_min,
