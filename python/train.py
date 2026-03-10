@@ -11,43 +11,62 @@ except ImportError as exc:
         "sb3-contrib is required for action masking. "
         "Install dependencies from python/requirements.txt."
     ) from exc
-from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
+from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.monitor import Monitor
 
+from checkpoint_manager import CheckpointManager
 from config import load_config
 from isaac_env import IsaacEnv
 from network import IsaacFeatureExtractor
 from utils import (
-    find_latest_checkpoint,
-    find_latest_compatible_checkpoint,
     get_checkpoint_dir,
     get_log_dir,
-    timestamped_checkpoint_stem,
     validate_ppo_checkpoint,
 )
 
 
-def resolve_resume_path(resume: str | None, checkpoint_dir: Path, env) -> str | None:
-    """Resolve special resume modes to an actual checkpoint path."""
+def resolve_resume_path(
+    resume: str | None,
+    checkpoint_dir: Path,
+    config_path: str | None,
+    env,
+) -> str | None:
+    """Resolve special resume modes to an actual checkpoint path.
+
+    Modes:
+        latest              — most recent checkpoint for the same config
+        latest-any          — most recent checkpoint across all configs
+        latest-compatible   — newest checkpoint (same config) that loads successfully
+        <path>              — explicit path (absolute, relative, or filename in checkpoint_dir)
+    """
     if resume is None:
         return None
 
     if resume == "latest":
-        checkpoint = find_latest_checkpoint(checkpoint_dir)
+        checkpoint = CheckpointManager.find_latest_for_config(checkpoint_dir, config_path)
+        if checkpoint is None:
+            raise FileNotFoundError(
+                f"No checkpoints found for config '{Path(config_path).stem}' in {checkpoint_dir}"
+            )
+        return str(checkpoint)
+
+    if resume == "latest-any":
+        checkpoint = CheckpointManager.find_latest(checkpoint_dir)
         if checkpoint is None:
             raise FileNotFoundError(f"No checkpoints found in {checkpoint_dir}")
-        return checkpoint
+        return str(checkpoint)
 
     if resume == "latest-compatible":
-        checkpoint = find_latest_compatible_checkpoint(
+        checkpoint = CheckpointManager.find_latest_compatible(
             checkpoint_dir,
+            config_path,
             validator=lambda candidate: validate_ppo_checkpoint(candidate, env),
         )
         if checkpoint is None:
             raise FileNotFoundError(
                 f"No compatible checkpoints found in {checkpoint_dir}"
             )
-        return checkpoint
+        return str(checkpoint)
 
     resume_path = Path(resume).expanduser()
     if resume_path.is_absolute():
@@ -63,19 +82,19 @@ def resolve_resume_path(resume: str | None, checkpoint_dir: Path, env) -> str | 
     return str(resume_path.resolve())
 
 
-def save_named_checkpoint(model: PPO, checkpoint_dir: Path, stem: str) -> Path:
-    """Save a named checkpoint with a sortable timestamp prefix."""
-    checkpoint_path = checkpoint_dir / timestamped_checkpoint_stem(stem)
-    model.save(str(checkpoint_path))
-    return checkpoint_path.with_suffix(".zip")
+class ManagedCheckpointCallback(BaseCallback):
+    """Save periodic checkpoints via CheckpointManager."""
 
+    def __init__(self, manager: CheckpointManager, save_freq: int, verbose=0):
+        super().__init__(verbose)
+        self.manager = manager
+        self.save_freq = save_freq
 
-class TimestampedCheckpointCallback(CheckpointCallback):
-    """Save periodic checkpoints with a sortable timestamp prefix."""
-
-    def _checkpoint_path(self, checkpoint_type: str = "", extension: str = "") -> str:
-        stem = f"{self.name_prefix}_{checkpoint_type}{self.num_timesteps}_steps"
-        return str(Path(self.save_path) / f"{timestamped_checkpoint_stem(stem)}.{extension}")
+    def _on_step(self) -> bool:
+        if self.num_timesteps % self.save_freq == 0:
+            name = f"step_{self.num_timesteps:07d}"
+            self.manager.save(self.model, name, self.num_timesteps, "periodic")
+        return True
 
 
 class GamePauseCallback(BaseCallback):
@@ -197,9 +216,10 @@ def train(config_path: str | None = None, resume: str | None = None):
 
     # Wandb init
     use_wandb = config.wandb.enabled
+    wandb_run = None
     if use_wandb:
         import wandb
-        wandb.init(
+        wandb_run = wandb.init(
             project=config.wandb.project,
             entity=config.wandb.entity,
             name=config.wandb.run_name,
@@ -207,13 +227,21 @@ def train(config_path: str | None = None, resume: str | None = None):
             config=asdict(config),
         )
 
+    # Checkpoint manager — per-run folders, metadata, W&B artifacts
+    ckpt_manager = CheckpointManager(
+        base_dir=checkpoint_dir,
+        config_path=config_path,
+        config=config,
+        wandb_run=wandb_run,
+    )
+
     policy_kwargs = {
         "features_extractor_class": IsaacFeatureExtractor,
         "features_extractor_kwargs": {"features_dim": 256},
         "net_arch": {"pi": [128, 64], "vf": [128, 64]},
     }
 
-    resume_path = resolve_resume_path(resume, checkpoint_dir, env)
+    resume_path = resolve_resume_path(resume, checkpoint_dir, config_path, env)
     if resume_path:
         model = PPO.load(resume_path, env=env)
         log.info("Resumed from %s", resume_path)
@@ -236,20 +264,13 @@ def train(config_path: str | None = None, resume: str | None = None):
             tensorboard_log=str(log_dir),
         )
 
-    checkpoint_callback = TimestampedCheckpointCallback(
+    checkpoint_callback = ManagedCheckpointCallback(
+        manager=ckpt_manager,
         save_freq=config.train.save_interval,
-        save_path=str(checkpoint_dir),
-        name_prefix="isaac_rl",
     )
 
     callbacks = [checkpoint_callback, GamePauseCallback(isaac_env)]
     if use_wandb:
-        from wandb.integration.sb3 import WandbCallback
-        callbacks.append(WandbCallback(
-            model_save_path=str(checkpoint_dir),
-            model_save_freq=config.train.save_interval,
-            verbose=0,
-        ))
         callbacks.append(IsaacMetricsCallback())
 
     # Graceful SIGINT: save checkpoint before exiting
@@ -259,12 +280,13 @@ def train(config_path: str | None = None, resume: str | None = None):
     def _save_interrupt_checkpoint() -> Path:
         nonlocal interrupt_checkpoint_path
         if interrupt_checkpoint_path is None:
-            interrupt_checkpoint_path = save_named_checkpoint(
-                model, checkpoint_dir, "interrupted_model"
+            step = model.num_timesteps
+            interrupt_checkpoint_path = ckpt_manager.save(
+                model, "interrupted_model", step, "interrupted"
             )
         return interrupt_checkpoint_path
 
-    def _on_sigint(sig, frame):
+    def _on_sigint(_sig, _frame):
         nonlocal interrupted
         if interrupted:
             log.warning("Second interrupt, forcing exit")
@@ -280,7 +302,8 @@ def train(config_path: str | None = None, resume: str | None = None):
             callback=callbacks,
             log_interval=config.train.log_interval,
         )
-        checkpoint_path = save_named_checkpoint(model, checkpoint_dir, "final_model")
+        step = model.num_timesteps
+        checkpoint_path = ckpt_manager.save(model, "final_model", step, "final")
         log.info("Training complete. Model saved to %s", checkpoint_path)
     except KeyboardInterrupt:
         log.info("Interrupt received, saving checkpoint...")
@@ -296,7 +319,8 @@ def train(config_path: str | None = None, resume: str | None = None):
             )
             return
         log.exception("Training crashed, saving emergency checkpoint...")
-        checkpoint_path = save_named_checkpoint(model, checkpoint_dir, "crashed_model")
+        step = model.num_timesteps
+        checkpoint_path = ckpt_manager.save(model, "crashed_model", step, "crashed")
         log.info("Saved to %s", checkpoint_path)
         raise
     finally:
@@ -313,7 +337,7 @@ if __name__ == "__main__":
         "--resume",
         type=str,
         default=None,
-        help="Checkpoint path, filename under checkpoints/, or one of: latest, latest-compatible",
+        help="Checkpoint path, or one of: latest (same config), latest-any, latest-compatible",
     )
     args = parser.parse_args()
     train(args.config, args.resume)

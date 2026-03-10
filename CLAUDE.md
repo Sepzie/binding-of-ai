@@ -10,6 +10,13 @@
 - Game: Isaac Repentance v1.7.9b via Proton on Linux
 - Track progress via CHECKLIST.md
 
+## Checkpoints
+- Checkpoints are managed by `CheckpointManager` in `python/checkpoint_manager.py`.
+- Each training run saves to its own folder: `checkpoints/<run_id>/`.
+- Every checkpoint has a `.meta.json` sidecar and is logged as a W&B artifact reference.
+- `--resume latest` is scoped to the same config file. Use `--resume latest-any` for cross-config.
+- See `docs/checkpoints.md` for full details.
+
 ## Wandb Run Management
 - Always set `run_name` and `tags` in the wandb config section before launching a run.
 - Name runs descriptively: include the phase and what changed, e.g. `"phase1a-high-entropy"`, `"phase1a-6enemies-lr1e4"`.
