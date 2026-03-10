@@ -140,23 +140,46 @@ class GamePauseCallback(BaseCallback):
 
 
 class IsaacMetricsCallback(BaseCallback):
-    """Log Isaac-specific episode metrics to wandb."""
+    """Log Isaac-specific episode metrics to wandb and console."""
+
+    def __init__(self, use_wandb=False, verbose=0):
+        super().__init__(verbose)
+        self.use_wandb = use_wandb
+        self._ep_count = 0
 
     def _on_step(self) -> bool:
         for info in self.locals.get("infos", []):
             if "episode" not in info:
                 continue
-            import wandb
+            self._ep_count += 1
 
             state = info.get("state", {})
+            ep_reward = info["episode"]["r"]
+            ep_length = info["episode"]["l"]
+            reason = state.get("terminal_reason", "unknown")
+            kills = info.get("ep_kills", 0)
+            dmg = info.get("ep_damage_taken", 0)
+            tps = info.get("game_ticks_per_sec", 0)
+
+            # Console summary (visible in main process)
+            log = logging.getLogger("train")
+            log.info(
+                "EP %d (%s) | steps=%d reward=%.1f kills=%d dmg=%d ticks/s=%.1f [t=%d]",
+                self._ep_count, reason, ep_length, ep_reward, kills, dmg, tps,
+                self.num_timesteps,
+            )
+
+            if not self.use_wandb:
+                continue
+            import wandb
 
             # Gameplay metrics
             metrics = {
-                "episode/reward": info["episode"]["r"],
-                "episode/length": info["episode"]["l"],
-                "episode/won": float(state.get("terminal_reason") == "room_cleared"),
-                "episode/kills": info.get("ep_kills", 0),
-                "episode/damage_taken": info.get("ep_damage_taken", 0),
+                "episode/reward": ep_reward,
+                "episode/length": ep_length,
+                "episode/won": float(reason == "room_cleared"),
+                "episode/kills": kills,
+                "episode/damage_taken": dmg,
             }
 
             # Cumulative reward component breakdown
@@ -170,10 +193,10 @@ class IsaacMetricsCallback(BaseCallback):
                 metrics["perf/avg_step_latency_ms"] = info["avg_step_latency"] * 1000
             if "instant_ratio" in info:
                 metrics["perf/instant_ratio"] = info["instant_ratio"]
-            if info.get("game_ticks_per_sec", 0) > 0:
-                metrics["perf/game_ticks_per_sec"] = info["game_ticks_per_sec"]
+            if tps > 0:
+                metrics["perf/game_ticks_per_sec"] = tps
 
-            wandb.log(metrics)
+            wandb.log(metrics, step=self.num_timesteps)
         return True
 
 
@@ -218,6 +241,9 @@ def train(config_path: str | None = None, resume: str | None = None):
         format="%(asctime)s [%(name)s] %(message)s",
         datefmt="%H:%M:%S",
     )
+    # Silence noisy third-party loggers
+    for noisy in ("urllib3", "git", "git.cmd", "git.util", "asyncio", "wandb"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     config = load_config(config_path)
     n_workers = config.env.n_workers
     base_port = config.env.base_port
@@ -293,9 +319,11 @@ def train(config_path: str | None = None, resume: str | None = None):
         save_freq=config.train.save_interval,
     )
 
-    callbacks = [checkpoint_callback, GamePauseCallback(env)]
-    if use_wandb:
-        callbacks.append(IsaacMetricsCallback())
+    callbacks = [
+        checkpoint_callback,
+        GamePauseCallback(env),
+        IsaacMetricsCallback(use_wandb=use_wandb),
+    ]
 
     # Graceful SIGINT: save checkpoint before exiting
     interrupted = False

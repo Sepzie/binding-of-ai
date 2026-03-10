@@ -1,6 +1,8 @@
 env:
   frame_skip: 3
   max_episode_steps: 300
+  n_workers: 2
+  base_port: 9999
 
 reward:
   damage_dealt: 0.0

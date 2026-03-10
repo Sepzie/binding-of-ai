@@ -38,11 +38,11 @@ def launch_worker(worker_id: int, port: int) -> subprocess.Popen:
         f"/env:ISAAC_RL_PORT={port}",
         f"/env:ISAAC_RL_INSTANCE={worker_id}",
         STEAM_EXE,
+        "-offline",
+        "-silent",
         "-applaunch",
         ISAAC_APP_ID,
     ]
-    # Note: -offline flag for Steam doesn't work reliably via CLI.
-    # Use Sandboxie network blocking if offline mode is needed.
     log.info("Launching worker %d in sandbox %s on port %d", worker_id, box, port)
     log.debug("Command: %s", cmd)
     proc = subprocess.Popen(cmd)
