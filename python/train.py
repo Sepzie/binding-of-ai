@@ -36,24 +36,6 @@ def resolve_resume_path(resume: str | None, checkpoint_dir: Path, env) -> str | 
         checkpoint = find_latest_checkpoint(checkpoint_dir)
         if checkpoint is None:
             raise FileNotFoundError(f"No checkpoints found in {checkpoint_dir}")
-        try:
-            validate_ppo_checkpoint(Path(checkpoint), env)
-        except Exception:
-            compatible = find_latest_compatible_checkpoint(
-                checkpoint_dir,
-                validator=lambda candidate: validate_ppo_checkpoint(candidate, env),
-            )
-            if compatible is None:
-                raise FileNotFoundError(
-                    "Latest checkpoint is incompatible and no compatible checkpoints were found. "
-                    "Use --resume latest-compatible after creating at least one MaskablePPO checkpoint."
-                )
-            logging.getLogger("train").warning(
-                "Latest checkpoint %s is incompatible; using latest compatible %s",
-                checkpoint,
-                compatible,
-            )
-            return compatible
         return checkpoint
 
     if resume == "latest-compatible":
