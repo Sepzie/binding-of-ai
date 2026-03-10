@@ -13,7 +13,11 @@ $pythonDir = Join-Path $repoRoot "python"
 
 if (-not $Config) {
     $Config = Join-Path $repoRoot "configs\phase1a.yaml"
+} elseif (-not [System.IO.Path]::IsPathRooted($Config)) {
+    $Config = Join-Path $repoRoot $Config
 }
+
+$Config = (Resolve-Path $Config).Path
 
 $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
 if (Test-Path $venvPython) {
@@ -39,4 +43,3 @@ try {
 } finally {
     Pop-Location
 }
-
