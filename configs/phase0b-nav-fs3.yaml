@@ -18,7 +18,7 @@ reward:
   nav_target_dy: 0.0
 
 train:
-  total_timesteps: 200000
+  total_timesteps: 40000
   learning_rate: 0.0003
   n_steps: 1024
   batch_size: 64
