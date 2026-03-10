@@ -9,4 +9,4 @@ build/
 .venv/
 firebase-debug.log
 .claude/
-python/wandb/
+wandb/

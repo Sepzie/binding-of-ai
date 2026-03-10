@@ -117,7 +117,7 @@ class CheckpointManager:
             type="model",
             metadata=meta,
         )
-        artifact.add_reference(f"file://{zip_path.resolve()}")
+        artifact.add_reference(zip_path.resolve().as_uri())
 
         # Build aliases
         aliases = [f"step-{meta['step']}"]
