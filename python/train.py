@@ -108,25 +108,39 @@ class GamePauseCallback(BaseCallback):
 
 
 class IsaacMetricsCallback(BaseCallback):
-    """Log Isaac-specific episode metrics (speed diagnostics, kills) to wandb."""
+    """Log Isaac-specific episode metrics to wandb."""
 
     def _on_step(self) -> bool:
         for info in self.locals.get("infos", []):
             if "episode" not in info:
                 continue
             import wandb
+
+            state = info.get("state", {})
+
+            # Gameplay metrics
             metrics = {
                 "episode/reward": info["episode"]["r"],
                 "episode/length": info["episode"]["l"],
+                "episode/won": float(state.get("terminal_reason") == "room_cleared"),
+                "episode/kills": info.get("ep_kills", 0),
+                "episode/damage_taken": info.get("ep_damage_taken", 0),
             }
+
+            # Cumulative reward component breakdown
+            for component, value in info.get("ep_reward_components", {}).items():
+                metrics[f"reward/{component}"] = value
+
+            # Performance metrics
             if "frames_dropped" in info:
-                metrics["episode/frames_dropped"] = info["frames_dropped"]
+                metrics["perf/frames_dropped"] = info["frames_dropped"]
             if "avg_step_latency" in info:
-                metrics["episode/avg_step_latency_ms"] = info["avg_step_latency"] * 1000
+                metrics["perf/avg_step_latency_ms"] = info["avg_step_latency"] * 1000
             if "instant_ratio" in info:
-                metrics["episode/instant_ratio"] = info["instant_ratio"]
+                metrics["perf/instant_ratio"] = info["instant_ratio"]
             if info.get("game_ticks_per_sec", 0) > 0:
-                metrics["episode/game_ticks_per_sec"] = info["game_ticks_per_sec"]
+                metrics["perf/game_ticks_per_sec"] = info["game_ticks_per_sec"]
+
             wandb.log(metrics)
         return True
 

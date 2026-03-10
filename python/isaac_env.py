@@ -64,6 +64,7 @@ class IsaacEnv(gym.Env):
         self._ep_reward = 0.0
         self._ep_kills = 0
         self._ep_damage_taken = 0
+        self._ep_reward_components: dict[str, float] = {}
         self._last_terminal_reason = None
 
         # Speed diagnostics
@@ -162,6 +163,7 @@ class IsaacEnv(gym.Env):
         self._ep_reward = 0.0
         self._ep_kills = 0
         self._ep_damage_taken = 0
+        self._ep_reward_components = {}
         self._last_terminal_reason = None
         self._last_episode_tick = 0
         self._ep_frames_dropped = 0
@@ -228,6 +230,8 @@ class IsaacEnv(gym.Env):
 
         # Track episode stats
         rc = self.reward_shaper.reward_components
+        for key, value in rc.items():
+            self._ep_reward_components[key] = self._ep_reward_components.get(key, 0.0) + value
         if rc.get("kills", 0) > 0:
             self._ep_kills += int(rc["kills"] / self.config.reward.enemy_killed)
         if rc.get("damage_taken", 0) < 0:
@@ -263,6 +267,9 @@ class IsaacEnv(gym.Env):
         info = {
             "state": state,
             "reward_components": self.reward_shaper.reward_components.copy(),
+            "ep_reward_components": self._ep_reward_components.copy(),
+            "ep_kills": self._ep_kills,
+            "ep_damage_taken": self._ep_damage_taken,
             "step_latency": step_latency,
             "avg_step_latency": avg_latency,
             "instant_ratio": instant_ratio,
