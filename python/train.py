@@ -84,19 +84,24 @@ class GamePauseCallback(BaseCallback):
 
     def _on_rollout_start(self) -> None:
         self.isaac_env._send({"command": "resume"})
-        # Flush stale states from TCP buffer
+        # Flush stale states from TCP buffer and count discarded bytes
+        flushed_bytes = 0
         self.isaac_env.sock.setblocking(False)
         try:
             while True:
                 data = self.isaac_env.sock.recv(65536)
                 if not data:
                     break
+                flushed_bytes += len(data)
         except (BlockingIOError, OSError):
             pass
         self.isaac_env.sock.setblocking(True)
         self.isaac_env.sock.settimeout(self.isaac_env.env_cfg.action_timeout)
         # Reset the buffered reader so it doesn't hold partial stale data
         self.isaac_env.sock_file = self.isaac_env.sock.makefile("r")
+        if flushed_bytes > 0:
+            log = logging.getLogger("train")
+            log.info("Flushed %d stale bytes from TCP buffer at rollout start", flushed_bytes)
 
     def _on_step(self) -> bool:
         return True
@@ -116,8 +121,10 @@ class IsaacMetricsCallback(BaseCallback):
             }
             if "frames_dropped" in info:
                 metrics["episode/frames_dropped"] = info["frames_dropped"]
-            if "step_latency" in info:
-                metrics["episode/step_latency_ms"] = info["step_latency"] * 1000
+            if "avg_step_latency" in info:
+                metrics["episode/avg_step_latency_ms"] = info["avg_step_latency"] * 1000
+            if "instant_ratio" in info:
+                metrics["episode/instant_ratio"] = info["instant_ratio"]
             if info.get("game_ticks_per_sec", 0) > 0:
                 metrics["episode/game_ticks_per_sec"] = info["game_ticks_per_sec"]
             wandb.log(metrics)

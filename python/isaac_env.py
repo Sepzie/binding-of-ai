@@ -253,10 +253,19 @@ class IsaacEnv(gym.Env):
                 game_ticks_per_sec = (len(self._ep_receive_times) - 1) / duration
 
         obs = self._state_to_obs(state)
+        # Fraction of steps where state was already buffered (latency < 1ms)
+        instant_ratio = 0.0
+        avg_latency = step_latency
+        if self._ep_step_latencies:
+            instant_ratio = sum(1 for l in self._ep_step_latencies if l < 0.001) / len(self._ep_step_latencies)
+            avg_latency = sum(self._ep_step_latencies) / len(self._ep_step_latencies)
+
         info = {
             "state": state,
             "reward_components": self.reward_shaper.reward_components.copy(),
             "step_latency": step_latency,
+            "avg_step_latency": avg_latency,
+            "instant_ratio": instant_ratio,
             "frames_dropped": self._ep_frames_dropped,
             "game_ticks_per_sec": game_ticks_per_sec,
         }
