@@ -70,6 +70,7 @@ class IsaacEnv(gym.Env):
         self._last_episode_tick = 0
         self._ep_frames_dropped = 0
         self._ep_step_latencies = []
+        self._ep_receive_times = []  # wall-clock time of each received state
 
     def _connect(self):
         if self.sock is not None:
@@ -143,12 +144,17 @@ class IsaacEnv(gym.Env):
                 sum(self._ep_step_latencies) / len(self._ep_step_latencies) * 1000
                 if self._ep_step_latencies else 0.0
             )
+            ticks_per_sec = 0.0
+            if len(self._ep_receive_times) >= 2:
+                duration = self._ep_receive_times[-1] - self._ep_receive_times[0]
+                if duration > 0:
+                    ticks_per_sec = (len(self._ep_receive_times) - 1) / duration
             log.info(
                 "EP %d ended (%s) | steps=%d reward=%.1f kills=%d dmg_taken=%d "
-                "frames_dropped=%d avg_latency=%.1fms",
+                "frames_dropped=%d avg_latency=%.1fms ticks/s=%.1f",
                 self._episode_num, reason, self.step_count,
                 self._ep_reward, self._ep_kills, self._ep_damage_taken,
-                self._ep_frames_dropped, avg_latency,
+                self._ep_frames_dropped, avg_latency, ticks_per_sec,
             )
 
         self._episode_num += 1
@@ -160,6 +166,7 @@ class IsaacEnv(gym.Env):
         self._last_episode_tick = 0
         self._ep_frames_dropped = 0
         self._ep_step_latencies = []
+        self._ep_receive_times = []
         self.reward_shaper.reset()
 
         if self._last_episode_id == 0:
@@ -202,8 +209,10 @@ class IsaacEnv(gym.Env):
         # Receive next state from Lua's stream (measure wait time)
         t_before = time.monotonic()
         state = self._receive()
-        step_latency = time.monotonic() - t_before
+        t_after = time.monotonic()
+        step_latency = t_after - t_before
         self._ep_step_latencies.append(step_latency)
+        self._ep_receive_times.append(t_after)
 
         # Detect dropped frames via episode_tick gaps
         episode_tick = state.get("episode_tick", 0)
@@ -236,12 +245,20 @@ class IsaacEnv(gym.Env):
         if terminated or truncated:
             self._last_terminal_reason = terminal_reason
 
+        # Compute live ticks/sec from wall-clock receive times
+        game_ticks_per_sec = 0.0
+        if len(self._ep_receive_times) >= 2:
+            duration = self._ep_receive_times[-1] - self._ep_receive_times[0]
+            if duration > 0:
+                game_ticks_per_sec = (len(self._ep_receive_times) - 1) / duration
+
         obs = self._state_to_obs(state)
         info = {
             "state": state,
             "reward_components": self.reward_shaper.reward_components.copy(),
             "step_latency": step_latency,
             "frames_dropped": self._ep_frames_dropped,
+            "game_ticks_per_sec": game_ticks_per_sec,
         }
 
         self.last_state = state

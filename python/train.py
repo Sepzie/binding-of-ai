@@ -88,6 +88,8 @@ class IsaacMetricsCallback(BaseCallback):
                 metrics["episode/frames_dropped"] = info["frames_dropped"]
             if "step_latency" in info:
                 metrics["episode/step_latency_ms"] = info["step_latency"] * 1000
+            if info.get("game_ticks_per_sec", 0) > 0:
+                metrics["episode/game_ticks_per_sec"] = info["game_ticks_per_sec"]
             wandb.log(metrics)
         return True
 
