@@ -19,10 +19,9 @@ train:
   ent_coef: 0.02
 
 phase:
-  enemy_type: 13        # Fly
+  enemy_type: 10
   enemy_variant: 0
   enemy_count: 1
-  enemy_collision_damage: 0.0
   spawn_enemies: true
   random_spawn_positions: true
   spawn_radius_min: 80.0
@@ -33,5 +32,5 @@ phase:
 wandb:
   enabled: true
   project: "binding-of-ai"
-  run_name: "phase0-survival-harmless-fly-lockroom"
-  tags: ["phase0", "survival", "action-masking", "harmless-fly"]
+  run_name: "phase0-survival-1gaper"
+  tags: ["phase0", "survival", "action-masking"]

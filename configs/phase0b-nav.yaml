@@ -24,18 +24,18 @@ train:
   ent_coef: 0.005
 
 phase:
-  enemy_type: 10
+  enemy_type: 13        # Fly
   enemy_variant: 0
-  enemy_count: 0
-  spawn_enemies: false
-  random_spawn_positions: false
-  spawn_radius_min: 80.0
-  spawn_radius_max: 160.0
+  enemy_count: 1
+  spawn_enemies: true
+  random_spawn_positions: true
+  spawn_radius_min: 120.0
+  spawn_radius_max: 200.0
   disable_shooting: true
   mask_shoot: true
 
 wandb:
   enabled: true
   project: "binding-of-ai"
-  run_name: "phase0b-nav-smoke"
-  tags: ["phase0b", "nav-smoke", "control-check"]
+  run_name: "phase0b-nav-smoke-lockroom"
+  tags: ["phase0b", "nav-smoke", "control-check", "fly-lockroom"]
