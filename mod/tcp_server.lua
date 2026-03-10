@@ -11,7 +11,7 @@ local ok, luasocket = pcall(require, "socket")
 if ok then
     socket = luasocket
     HAS_SOCKET = true
-    Isaac.ConsoleOutput("IsaacRL: luasocket loaded successfully\n")
+    Isaac.ConsoleOutput("IsaacRL: luasocket loaded\n")
 else
     Isaac.ConsoleOutput("IsaacRL: luasocket not available, falling back to file IPC\n")
 end

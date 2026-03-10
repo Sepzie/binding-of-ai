@@ -1,7 +1,8 @@
 local Config = {}
 
 Config.TCP_HOST = "127.0.0.1"
-Config.TCP_PORT = 9999
+Config.TCP_PORT = tonumber(os.getenv("ISAAC_RL_PORT")) or 9999
+Config.INSTANCE_ID = os.getenv("ISAAC_RL_INSTANCE") or "0"
 Config.TCP_TIMEOUT = 0.1  -- short timeout (non-blocking design, only affects send backpressure)
 
 -- How many game ticks between sending state / receiving actions

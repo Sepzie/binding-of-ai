@@ -35,7 +35,7 @@ function mod:onGameStart(isContinue)
     lastAction = {move = 0, shoot = 0}
     ActionInjector.reset()
 
-    Isaac.ConsoleOutput("IsaacRL: Episode " .. episodeId .. " started\n")
+    Isaac.ConsoleOutput("IsaacRL[" .. Config.INSTANCE_ID .. "]: Episode " .. episodeId .. " started (port " .. Config.TCP_PORT .. ")\n")
 end
 
 -- Handle new room
@@ -148,7 +148,7 @@ function mod:onUpdate()
 
     -- If terminal: restart immediately
     if terminal then
-        Isaac.ConsoleOutput("IsaacRL: Episode " .. episodeId .. " ended (" .. terminalReason .. ")\n")
+        Isaac.ConsoleOutput("IsaacRL[" .. Config.INSTANCE_ID .. "]: Episode " .. episodeId .. " ended (" .. terminalReason .. ")\n")
         ActionInjector.reset()
         lastAction = {move = 0, shoot = 0}
         GameControl.resetEpisode()
@@ -211,4 +211,4 @@ mod:AddCallback(ModCallbacks.MC_POST_UPDATE, mod.onUpdate)
 mod:AddCallback(ModCallbacks.MC_POST_RENDER, mod.onRender)
 mod:AddCallback(ModCallbacks.MC_INPUT_ACTION, mod.onInputAction)
 
-Isaac.ConsoleOutput("IsaacRL: Mod loaded\n")
+Isaac.ConsoleOutput("IsaacRL[" .. Config.INSTANCE_ID .. "]: Mod loaded (port " .. Config.TCP_PORT .. ")\n")
