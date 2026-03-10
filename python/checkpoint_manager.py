@@ -148,6 +148,48 @@ class CheckpointManager:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def find_latest_for_run(
+        base_dir: Path,
+        run_id: str,
+    ) -> Path | None:
+        """Find the most recent checkpoint from a specific run.
+
+        Matches run directories containing the run_id (e.g. a W&B short ID),
+        or metadata files where wandb_run_id matches.
+        """
+        best: tuple[int, float, Path] | None = None  # (step, timestamp, path)
+
+        for meta_file in base_dir.rglob("*.meta.json"):
+            # Check if run_id appears in the parent directory name or metadata
+            dir_match = run_id in meta_file.parent.name
+
+            if not dir_match:
+                try:
+                    meta = json.loads(meta_file.read_text())
+                except (json.JSONDecodeError, OSError):
+                    continue
+                if meta.get("wandb_run_id") != run_id:
+                    continue
+            else:
+                try:
+                    meta = json.loads(meta_file.read_text())
+                except (json.JSONDecodeError, OSError):
+                    continue
+
+            zip_path = meta_file.with_name(
+                meta_file.name.replace(".meta.json", ".zip")
+            )
+            if not zip_path.exists():
+                continue
+
+            step = meta.get("step", 0)
+            ts = meta_file.stat().st_mtime
+            if best is None or (step, ts) > (best[0], best[1]):
+                best = (step, ts, zip_path)
+
+        return best[2] if best else None
+
+    @staticmethod
     def find_latest_for_config(
         base_dir: Path,
         config_path: str,

@@ -64,6 +64,9 @@ To browse: go to your W&B project > Artifacts tab > select the config collection
 # Resume latest checkpoint (same config) that actually loads without error
 .\scripts\launch_training.ps1 -Config configs\phase0b-nav.yaml -Resume latest-compatible
 
+# Resume latest checkpoint from a specific W&B run
+.\scripts\launch_training.ps1 -Config configs\phase0b-nav.yaml -Resume run:0eean4d5
+
 # Resume from a specific path
 .\scripts\launch_training.ps1 -Config configs\phase0b-nav.yaml -Resume checkpoints\20260310_143000_phase0b-nav_abc123\final_model.zip
 ```

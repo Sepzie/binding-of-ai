@@ -37,10 +37,20 @@ def resolve_resume_path(
         latest              — most recent checkpoint for the same config
         latest-any          — most recent checkpoint across all configs
         latest-compatible   — newest checkpoint (same config) that loads successfully
+        run:<wandb_id>      — latest checkpoint from a specific W&B run
         <path>              — explicit path (absolute, relative, or filename in checkpoint_dir)
     """
     if resume is None:
         return None
+
+    if resume.startswith("run:"):
+        run_id = resume[4:]
+        checkpoint = CheckpointManager.find_latest_for_run(checkpoint_dir, run_id)
+        if checkpoint is None:
+            raise FileNotFoundError(
+                f"No checkpoints found for run '{run_id}' in {checkpoint_dir}"
+            )
+        return str(checkpoint)
 
     if resume == "latest":
         checkpoint = CheckpointManager.find_latest_for_config(checkpoint_dir, config_path)
@@ -337,7 +347,7 @@ if __name__ == "__main__":
         "--resume",
         type=str,
         default=None,
-        help="Checkpoint path, or one of: latest (same config), latest-any, latest-compatible",
+        help="Checkpoint path, run:<wandb_id>, or one of: latest, latest-any, latest-compatible",
     )
     args = parser.parse_args()
     train(args.config, args.resume)
