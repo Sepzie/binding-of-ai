@@ -15,6 +15,7 @@ local episodeId = 0
 local episodeTick = 0
 local hadEnemies = false
 local lastAction = {move = 0, shoot = 0}
+local paused = false
 
 -- Initialize on game start
 function mod:onGameStart(isContinue)
@@ -48,6 +49,10 @@ local function handleMessage(message)
                 ActionInjector.setDisableShooting(message.settings.disable_shooting)
             end
         end
+    elseif message.command == "pause" then
+        paused = true
+    elseif message.command == "resume" then
+        paused = false
     elseif message.command == "reset" then
         -- Manual/initial reset
         ActionInjector.reset()
@@ -67,6 +72,16 @@ function mod:onUpdate()
     -- Try to accept a client if not connected
     if not server.connected then
         server:acceptClient()
+        return
+    end
+
+    -- Poll for commands even when paused (to receive resume)
+    if paused then
+        while true do
+            local message = server:pollAction()
+            if not message then break end
+            handleMessage(message)
+        end
         return
     end
 

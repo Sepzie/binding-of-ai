@@ -72,6 +72,36 @@ class TimestampedCheckpointCallback(CheckpointCallback):
         return str(Path(self.save_path) / f"{timestamped_checkpoint_stem(stem)}.{extension}")
 
 
+class GamePauseCallback(BaseCallback):
+    """Pause the game during PPO training to prevent stale state buffering."""
+
+    def __init__(self, isaac_env: "IsaacEnv", verbose=0):
+        super().__init__(verbose)
+        self.isaac_env = isaac_env
+
+    def _on_rollout_end(self) -> None:
+        self.isaac_env._send({"command": "pause"})
+
+    def _on_rollout_start(self) -> None:
+        self.isaac_env._send({"command": "resume"})
+        # Flush stale states from TCP buffer
+        self.isaac_env.sock.setblocking(False)
+        try:
+            while True:
+                data = self.isaac_env.sock.recv(65536)
+                if not data:
+                    break
+        except (BlockingIOError, OSError):
+            pass
+        self.isaac_env.sock.setblocking(True)
+        self.isaac_env.sock.settimeout(self.isaac_env.env_cfg.action_timeout)
+        # Reset the buffered reader so it doesn't hold partial stale data
+        self.isaac_env.sock_file = self.isaac_env.sock.makefile("r")
+
+    def _on_step(self) -> bool:
+        return True
+
+
 class IsaacMetricsCallback(BaseCallback):
     """Log Isaac-specific episode metrics (speed diagnostics, kills) to wandb."""
 
@@ -177,7 +207,7 @@ def train(config_path: str | None = None, resume: str | None = None):
         name_prefix="isaac_rl",
     )
 
-    callbacks = [checkpoint_callback]
+    callbacks = [checkpoint_callback, GamePauseCallback(isaac_env)]
     if use_wandb:
         from wandb.integration.sb3 import WandbCallback
         callbacks.append(WandbCallback(
