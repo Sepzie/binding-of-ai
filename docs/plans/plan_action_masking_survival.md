@@ -40,25 +40,24 @@ mask_shoot: bool = False  # When True, mask all shoot actions except "don't shoo
 
 ### Step 3: Add action_masks() method to IsaacEnv
 
-`MaskablePPO` expects the env to have an `action_masks()` method that returns a list
-of boolean arrays — one per action head in MultiDiscrete.
+`MaskablePPO` expects the env to have an `action_masks()` method that returns a
+flattened boolean array for MultiDiscrete (length `sum(nvec)`).
 
 In `isaac_env.py`:
 
 ```python
-def action_masks(self) -> list[np.ndarray]:
-    """Return valid action masks for each action head."""
-    move_mask = np.ones(9, dtype=bool)  # all movement always valid
+def action_masks(self) -> np.ndarray:
+    """Return flattened action mask for MultiDiscrete([9, 5])."""
+    move_mask = np.ones(9, dtype=bool)
 
     if self.config.phase.mask_shoot:
         # Only allow "don't shoot" (action 0), mask out shoot directions 1-4
         shoot_mask = np.array([True, False, False, False, False], dtype=bool)
     else:
-        shoot_mask = np.ones(5, dtype=bool)  # all shoot actions valid
+        shoot_mask = np.ones(5, dtype=bool)
 
-    return [move_mask, shoot_mask]
+    return np.concatenate((move_mask, shoot_mask))
 ```
-
 ### Step 4: Switch PPO to MaskablePPO in train.py
 
 Replace:
@@ -138,8 +137,12 @@ python train.py --config configs/phase1a.yaml --resume checkpoints/<phase0-check
 ```
 
 Since the architecture is identical (same action space shape, same obs space, same
-network), this should just work with normal `MaskablePPO.load()`. The only difference
-is the mask changes — previously-frozen shoot weights become active.
+network), this should work with `MaskablePPO.load()` for checkpoints trained with
+`MaskablePPO`. The only difference is the mask changes - previously-frozen shoot
+weights become active.
+
+Note: legacy checkpoints trained with plain SB3 `PPO` may not be load-compatible
+with `MaskablePPO` without a one-time migration/retrain boundary.
 
 ---
 
@@ -187,3 +190,5 @@ The action masking pattern scales naturally:
 - Phase 5 (items): mask item-choice actions until standing on a pedestal
 
 Each phase unmasks new capabilities while preserving everything learned before.
+
+

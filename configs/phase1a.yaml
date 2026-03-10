@@ -26,6 +26,7 @@ phase:
   spawn_radius_min: 80.0
   spawn_radius_max: 160.0
   disable_shooting: false
+  mask_shoot: false
 
 wandb:
   enabled: true
