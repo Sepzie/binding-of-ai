@@ -20,9 +20,15 @@ train:
 phase:
   enemy_type: 10        # Gaper
   enemy_variant: 0
-  enemy_count: 1
+  enemy_count: 4
   spawn_enemies: true
   random_spawn_positions: true
   spawn_radius_min: 80.0
   spawn_radius_max: 160.0
   disable_shooting: false
+
+wandb:
+  enabled: true
+  project: "binding-of-ai"
+  run_name: "phase1a-4gapers-with-pause"
+  tags: ["phase1a", "game-pause"]
