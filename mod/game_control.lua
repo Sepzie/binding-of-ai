@@ -29,6 +29,9 @@ function GameControl.onNewRoom()
         if Config.SPAWN_ENEMIES then
             GameControl.spawnEnemies(game)
         end
+        if Config.SPAWN_PICKUP_PENNY then
+            GameControl.spawnPenny(game)
+        end
         waitingForReset = false
     end
 end
@@ -42,8 +45,17 @@ local function getSpawnRadius()
     return minRadius, maxRadius
 end
 
-local function getRandomSpawnPos(room, centerPos)
-    local minRadius, maxRadius = getSpawnRadius()
+local function getRandomSpawnPos(room, centerPos, minRadiusOverride, maxRadiusOverride)
+    local minRadius, maxRadius
+    if minRadiusOverride ~= nil or maxRadiusOverride ~= nil then
+        minRadius = minRadiusOverride or maxRadiusOverride or 80
+        maxRadius = maxRadiusOverride or minRadius
+        if maxRadius < minRadius then
+            minRadius, maxRadius = maxRadius, minRadius
+        end
+    else
+        minRadius, maxRadius = getSpawnRadius()
+    end
     local angle = math.random() * (math.pi * 2)
     local radius = minRadius
     if maxRadius > minRadius then
@@ -88,6 +100,36 @@ function GameControl.spawnEnemies(game)
     end
 end
 
+function GameControl.spawnPenny(game)
+    local room = game:GetRoom()
+    local centerPos = room:GetCenterPos()
+    local spawnPos
+
+    if Config.PICKUP_RANDOM_POSITION then
+        spawnPos = getRandomSpawnPos(
+            room,
+            centerPos,
+            Config.PICKUP_RADIUS_MIN,
+            Config.PICKUP_RADIUS_MAX
+        )
+    else
+        local targetPos = Vector(
+            centerPos.X + (Config.PICKUP_OFFSET_X or 180),
+            centerPos.Y + (Config.PICKUP_OFFSET_Y or 0)
+        )
+        spawnPos = room:FindFreePickupSpawnPosition(targetPos, 0, true)
+    end
+
+    Isaac.Spawn(
+        EntityType.ENTITY_PICKUP,
+        PickupVariant.PICKUP_COIN,
+        CoinSubType.COIN_PENNY,
+        spawnPos,
+        Vector(0, 0),
+        nil
+    )
+end
+
 function GameControl.configure(settings)
     if settings.enemy_type then
         Config.ENEMY_TYPE = settings.enemy_type
@@ -100,6 +142,27 @@ function GameControl.configure(settings)
     end
     if settings.enemy_collision_damage ~= nil then
         Config.ENEMY_COLLISION_DAMAGE = settings.enemy_collision_damage
+    end
+    if settings.spawn_pickup_penny ~= nil then
+        Config.SPAWN_PICKUP_PENNY = settings.spawn_pickup_penny
+    end
+    if settings.pickup_random_position ~= nil then
+        Config.PICKUP_RANDOM_POSITION = settings.pickup_random_position
+    end
+    if settings.pickup_offset_x ~= nil then
+        Config.PICKUP_OFFSET_X = settings.pickup_offset_x
+    end
+    if settings.pickup_offset_y ~= nil then
+        Config.PICKUP_OFFSET_Y = settings.pickup_offset_y
+    end
+    if settings.pickup_radius_min ~= nil then
+        Config.PICKUP_RADIUS_MIN = settings.pickup_radius_min
+    end
+    if settings.pickup_radius_max ~= nil then
+        Config.PICKUP_RADIUS_MAX = settings.pickup_radius_max
+    end
+    if settings.terminal_on_pickup ~= nil then
+        Config.TERMINAL_ON_PICKUP = settings.terminal_on_pickup
     end
     if settings.random_spawn_positions ~= nil then
         Config.RANDOM_SPAWN_POSITIONS = settings.random_spawn_positions

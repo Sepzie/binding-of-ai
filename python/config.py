@@ -62,6 +62,13 @@ class PhaseConfig:
     enemy_variant: int = 0
     enemy_count: int = 1
     enemy_collision_damage: float | None = None
+    spawn_pickup_penny: bool = False
+    pickup_random_position: bool = False
+    pickup_offset_x: float = 180.0
+    pickup_offset_y: float = 0.0
+    pickup_radius_min: float = 120.0
+    pickup_radius_max: float = 200.0
+    terminal_on_pickup: bool = False
     spawn_enemies: bool = True
     random_spawn_positions: bool = False
     spawn_radius_min: float = 80.0

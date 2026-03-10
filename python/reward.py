@@ -51,6 +51,11 @@ class RewardShaper:
         reward += damage_taken_reward
         self.reward_components["damage_taken"] = damage_taken_reward
 
+        # Pickup collected (currently measured via coin count increase)
+        pickup_reward = self._compute_pickups(state)
+        reward += pickup_reward
+        self.reward_components["pickup_collected"] = pickup_reward
+
         # Navigation smoke-test objective (optional)
         nav_reward, nav_progress_reward, nav_reach_bonus = self._compute_nav_reward(state)
         reward += nav_reward
@@ -102,6 +107,12 @@ class RewardShaper:
         if curr_hp < prev_hp:
             return self.config.damage_taken
         return 0.0
+
+    def _compute_pickups(self, state: dict) -> float:
+        prev_coins = self.prev_state.get("player", {}).get("num_coins", 0)
+        curr_coins = state.get("player", {}).get("num_coins", 0)
+        collected = max(0, curr_coins - prev_coins)
+        return collected * self.config.pickup_collected
 
     def _total_hp(self, player: dict) -> float:
         return (

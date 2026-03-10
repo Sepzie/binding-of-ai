@@ -14,6 +14,7 @@ local tickCount = 0
 local episodeId = 0
 local episodeTick = 0
 local hadEnemies = false
+local episodeStartCoins = 0
 local lastAction = {move = 0, shoot = 0}
 local paused = false
 
@@ -29,6 +30,8 @@ function mod:onGameStart(isContinue)
     episodeId = episodeId + 1
     episodeTick = 0
     hadEnemies = false
+    local player = Isaac.GetPlayer(0)
+    episodeStartCoins = player and player:GetNumCoins() or 0
     lastAction = {move = 0, shoot = 0}
     ActionInjector.reset()
 
@@ -120,6 +123,9 @@ function mod:onUpdate()
     if player:IsDead() then
         terminal = true
         terminalReason = "death"
+    elseif Config.TERMINAL_ON_PICKUP and player:GetNumCoins() > episodeStartCoins then
+        terminal = true
+        terminalReason = "pickup_collected"
     elseif hadEnemies and state.enemy_count == 0 then
         terminal = true
         terminalReason = "room_cleared"
