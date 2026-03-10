@@ -5,7 +5,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
 
 from config import load_config
@@ -70,6 +70,26 @@ class TimestampedCheckpointCallback(CheckpointCallback):
     def _checkpoint_path(self, checkpoint_type: str = "", extension: str = "") -> str:
         stem = f"{self.name_prefix}_{checkpoint_type}{self.num_timesteps}_steps"
         return str(Path(self.save_path) / f"{timestamped_checkpoint_stem(stem)}.{extension}")
+
+
+class IsaacMetricsCallback(BaseCallback):
+    """Log Isaac-specific episode metrics (speed diagnostics, kills) to wandb."""
+
+    def _on_step(self) -> bool:
+        for info in self.locals.get("infos", []):
+            if "episode" not in info:
+                continue
+            import wandb
+            metrics = {
+                "episode/reward": info["episode"]["r"],
+                "episode/length": info["episode"]["l"],
+            }
+            if "frames_dropped" in info:
+                metrics["episode/frames_dropped"] = info["frames_dropped"]
+            if "step_latency" in info:
+                metrics["episode/step_latency_ms"] = info["step_latency"] * 1000
+            wandb.log(metrics)
+        return True
 
 
 def train(config_path: str | None = None, resume: str | None = None):
@@ -157,12 +177,13 @@ def train(config_path: str | None = None, resume: str | None = None):
 
     callbacks = [checkpoint_callback]
     if use_wandb:
-        from wandb.integration.stable_baselines3 import WandbCallback
+        from wandb.integration.sb3 import WandbCallback
         callbacks.append(WandbCallback(
             model_save_path=str(checkpoint_dir),
             model_save_freq=config.train.save_interval,
             verbose=0,
         ))
+        callbacks.append(IsaacMetricsCallback())
 
     # Graceful SIGINT: save checkpoint before exiting
     interrupted = False
