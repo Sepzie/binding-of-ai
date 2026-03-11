@@ -42,6 +42,22 @@ The `GamePauseCallback` needed a small update — pause and resume now fan out a
 
 A launcher script handles the Sandboxie orchestration: spin up N sandboxes with staggered starts, wait for each TCP port to become reachable, then hand off to training.
 
+## The Subtle Bugs
+
+Two things we caught mid-session that would have silently degraded training quality.
+
+First: all four workers were generating identical coin spawn patterns. Same seed, same `math.random()` sequence, same training data four times over. The fix was one line in `config.lua`:
+
+```lua
+math.randomseed(os.time() + tonumber(Config.INSTANCE_ID) * 1000)
+```
+
+Without this, multi-worker training is faster in wall-clock time, but you're wasting most of the diversity benefit. Four identical rollouts teach less than four different ones.
+
+Second: the player always spawned near the bottom of the room. With random coin placement, coins that happened to spawn near the bottom got collected in a few steps, while coins at the top required crossing the entire room. The agent learned to hug the bottom wall because that's where the cheap rewards were. The fix was teleporting the player to the room center on every episode start — removing the spatial bias entirely.
+
+Neither bug crashed anything. Both would have been invisible without watching the game windows side by side.
+
 ## The Numbers
 
 First real multi-worker run: 4 workers on random coin navigation.
@@ -52,31 +68,18 @@ First real multi-worker run: 4 workers on random coin navigation.
 | Game ticks/sec (per worker) | 23.6 | 22.6 |
 | Wall time | 79.5 min | 135.1 min |
 
-**5.6x throughput gain with 4 workers.** Better than linear scaling, partly because the longer episodes in the random-coin task gave the PPO update cycle more efficient batches, and partly because Cheat Engine speed went from 5x to 10x between runs.
+**5.6x throughput gain with 4 workers.** Better than linear scaling, though part of that came from bumping Cheat Engine speed from 5x to 10x between runs. Per-worker tick rate held steady at ~23 ticks/sec. The workers weren't bottlenecking each other. The GPU wasn't saturated. The system scaled because the components were genuinely independent.
 
-Per-worker tick rate held steady at ~23 ticks/sec. The workers weren't bottlenecking each other. The GPU wasn't saturated. The CPU had headroom. The system scaled because the components were genuinely independent.
+## The Bigger Picture
 
-## The Subtle Bug
+On Linux, parallel training would have meant: set up multiple Proton prefixes, debug per-prefix Steam authentication, handle Wine socket quirks, manage separate filesystem trees, and hope nothing breaks when you scale past two instances. Every step would have been a session unto itself.
 
-One thing we caught mid-session: all four workers were generating identical coin spawn patterns. Same seed, same `math.random()` sequence, same training data four times over.
+On Windows, the entire multi-instance stack — Sandboxie sandboxes, environment variable injection, TCP port routing, `SubprocVecEnv` integration — was one session of work. The game ran natively. The mod loaded without translation layers. The sockets worked the way sockets should work.
 
-The fix was one line in `config.lua`:
-```lua
-math.randomseed(os.time() + tonumber(Config.INSTANCE_ID) * 1000)
-```
+Sometimes the right engineering decision isn't about algorithms or architecture. It's about picking the platform where the boring stuff is actually boring.
 
-Without this, multi-worker training is still faster in wall-clock time, but you're wasting most of the diversity benefit. Four identical rollouts teach less than four different ones.
+## What's Next
 
-## What's Still Manual
+The last piece of manual friction: game speed still requires Cheat Engine per-instance. And we've added a `start_run` command to the mod protocol so training can auto-start runs from the title screen — no more clicking through menus in four windows.
 
-Starting a run in each Isaac window. The launcher can open Steam, launch the game, and wait for the mod's TCP port. But someone still has to click through the title screen and start a new run in each instance.
-
-The mod's callbacks only fire during active gameplay, not on the title screen. Automating this will require either keypress simulation or a different hook point. Not urgent — it takes thirty seconds — but it's the last piece of friction before fully automated multi-worker sweeps.
-
-## The Takeaway
-
-Parallel training wasn't a research breakthrough. It was a systems problem with a systems solution. The hard part was never "how does SubprocVecEnv work" — it was "how do I run four copies of a commercial game without fighting the platform."
-
-On Linux, the answer was "painfully." On Windows with Sandboxie, it was "trivially."
-
-Sometimes the biggest engineering win is being on the right operating system.
+The system is close to fully automated: launcher spins up sandboxes, training connects and starts runs, workers feed rollouts, one model learns from all of them. The only human step left is attaching the speedhack.
