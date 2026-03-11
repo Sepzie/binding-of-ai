@@ -98,6 +98,8 @@ def main():
         if i < args.workers:
             time.sleep(3.0)
 
+    log.info("Waiting for games to load. Start a run in each Isaac window.")
+
     # Wait for all workers to accept TCP connections
     log.info("Waiting for %d workers to become reachable...", args.workers)
     all_ready = True
@@ -114,7 +116,6 @@ def main():
         log.info("  python train.py --config <config.yaml>")
         log.info("  (set env.n_workers=%d and env.base_port=%d in config)",
                  args.workers, args.base_port)
-        log.info("NOTE: train.py will auto-start runs via the mod's start_run command.")
     else:
         log.error("Some workers failed to start. Check Sandboxie and game logs.")
         sys.exit(1)

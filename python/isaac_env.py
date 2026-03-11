@@ -383,9 +383,5 @@ class IsaacEnv(gym.Env):
         self._connect()
         self._send({"command": "configure", "settings": settings})
 
-    def start_run(self):
-        """Tell the mod to start a new run (works from title screen)."""
-        self._send({"command": "start_run"})
-
     def close(self):
         self._disconnect()

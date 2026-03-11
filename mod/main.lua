@@ -56,12 +56,6 @@ local function handleMessage(message)
         paused = true
     elseif message.command == "resume" then
         paused = false
-    elseif message.command == "start_run" then
-        -- Start a new run (works from title screen or during gameplay)
-        ActionInjector.reset()
-        lastAction = {move = 0, shoot = 0}
-        Isaac.ExecuteCommand("restart")
-        Isaac.ConsoleOutput("IsaacRL[" .. Config.INSTANCE_ID .. "]: start_run command received, restarting\n")
     elseif message.command == "reset" then
         -- Manual/initial reset
         ActionInjector.reset()
@@ -194,7 +188,7 @@ function mod:onRender()
         return  -- onUpdate handles it
     end
 
-    -- Drain buffered messages (configure, manual reset)
+    -- Drain buffered messages (configure, manual reset, start_run)
     while true do
         local message = server:pollAction()
         if not message then break end
