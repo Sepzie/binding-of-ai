@@ -127,6 +127,9 @@ class IsaacEnv(gym.Env):
         try:
             self.sock.sendall(msg.encode())
         except (ConnectionError, OSError) as e:
+            # Don't reconnect on timeouts — let callers handle those
+            if isinstance(e, (TimeoutError, socket.timeout)):
+                raise
             log.warning("Send failed (%s), attempting reconnect", e)
             self._reconnect()
             # Re-send after reconnect
@@ -139,6 +142,9 @@ class IsaacEnv(gym.Env):
                 raise ConnectionError("Connection closed by game")
             return json.loads(line)
         except (ConnectionError, OSError) as e:
+            # Don't reconnect on timeouts — let callers handle those
+            if isinstance(e, (TimeoutError, socket.timeout)):
+                raise
             log.warning("Receive failed (%s), attempting reconnect", e)
             self._reconnect()
             # After reconnect, read the next available state
