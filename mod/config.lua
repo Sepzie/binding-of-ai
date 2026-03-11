@@ -3,7 +3,10 @@ local Config = {}
 Config.TCP_HOST = "127.0.0.1"
 Config.TCP_PORT = tonumber(os.getenv("ISAAC_RL_PORT")) or 9999
 Config.INSTANCE_ID = os.getenv("ISAAC_RL_INSTANCE") or "0"
-Config.TCP_TIMEOUT = 0.1  -- short timeout (non-blocking design, only affects send backpressure)
+Config.TCP_TIMEOUT = 0.5  -- send timeout; short enough to not block game loop, long enough for Python backpressure
+
+-- Seed RNG per-instance so multi-worker training gets diverse spawns
+math.randomseed(os.time() + tonumber(Config.INSTANCE_ID) * 1000)
 
 -- How many game ticks between sending state / receiving actions
 Config.FRAME_SKIP = 1

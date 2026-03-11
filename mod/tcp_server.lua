@@ -105,8 +105,14 @@ function TcpServer:sendState(stateTable)
     end
     local ok, err = self.client:send(data .. "\n")
     if not ok then
-        Isaac.ConsoleOutput("IsaacRL: Send error: " .. tostring(err) .. "\n")
-        self:handleDisconnect()
+        if err == "closed" then
+            -- Peer is gone, must reconnect
+            Isaac.ConsoleOutput("IsaacRL: Send error (closed), disconnecting\n")
+            self:handleDisconnect()
+        else
+            -- Timeout or transient error: drop frame, keep connection alive
+            Isaac.ConsoleOutput("IsaacRL: Send warning (" .. tostring(err) .. "), dropping frame\n")
+        end
         return false
     end
     return true

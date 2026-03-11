@@ -73,6 +73,10 @@ class IsaacEnv(gym.Env):
         self._ep_step_latencies = []
         self._ep_receive_times = []  # wall-clock time of each received state
 
+    # Reconnect settings
+    MAX_RECONNECT_RETRIES = 5
+    RECONNECT_BACKOFF_BASE = 1.0  # seconds, doubles each retry
+
     def _connect(self):
         if self.sock is not None:
             return
@@ -80,16 +84,68 @@ class IsaacEnv(gym.Env):
         self.sock.settimeout(self.env_cfg.action_timeout)
         self.sock.connect((self.env_cfg.host, self.env_cfg.port))
         self.sock_file = self.sock.makefile("r")
+        log.info("Connected to %s:%d", self.env_cfg.host, self.env_cfg.port)
+
+    def _disconnect(self):
+        """Clean up socket state."""
+        if self.sock_file:
+            try:
+                self.sock_file.close()
+            except OSError:
+                pass
+        if self.sock:
+            try:
+                self.sock.close()
+            except OSError:
+                pass
+        self.sock = None
+        self.sock_file = None
+
+    def _reconnect(self):
+        """Disconnect and reconnect with exponential backoff."""
+        self._disconnect()
+        for attempt in range(1, self.MAX_RECONNECT_RETRIES + 1):
+            delay = self.RECONNECT_BACKOFF_BASE * (2 ** (attempt - 1))
+            log.warning(
+                "Reconnect attempt %d/%d in %.1fs...",
+                attempt, self.MAX_RECONNECT_RETRIES, delay,
+            )
+            time.sleep(delay)
+            try:
+                self._connect()
+                log.info("Reconnected on attempt %d", attempt)
+                return
+            except (ConnectionError, OSError) as e:
+                log.warning("Reconnect attempt %d failed: %s", attempt, e)
+                self._disconnect()
+        raise ConnectionError(
+            f"Failed to reconnect after {self.MAX_RECONNECT_RETRIES} attempts"
+        )
 
     def _send(self, data: dict):
         msg = json.dumps(data) + "\n"
-        self.sock.sendall(msg.encode())
+        try:
+            self.sock.sendall(msg.encode())
+        except (ConnectionError, OSError) as e:
+            log.warning("Send failed (%s), attempting reconnect", e)
+            self._reconnect()
+            # Re-send after reconnect
+            self.sock.sendall(msg.encode())
 
     def _receive(self) -> dict:
-        line = self.sock_file.readline()
-        if not line:
-            raise ConnectionError("Connection closed by game")
-        return json.loads(line)
+        try:
+            line = self.sock_file.readline()
+            if not line:
+                raise ConnectionError("Connection closed by game")
+            return json.loads(line)
+        except (ConnectionError, OSError) as e:
+            log.warning("Receive failed (%s), attempting reconnect", e)
+            self._reconnect()
+            # After reconnect, read the next available state
+            line = self.sock_file.readline()
+            if not line:
+                raise ConnectionError("Connection closed by game after reconnect")
+            return json.loads(line)
 
     def _state_to_obs(self, state: dict) -> dict:
         grid = np.array(state["grid"], dtype=np.float32)
@@ -320,9 +376,4 @@ class IsaacEnv(gym.Env):
         self._send({"command": "configure", "settings": settings})
 
     def close(self):
-        if self.sock_file:
-            self.sock_file.close()
-        if self.sock:
-            self.sock.close()
-        self.sock = None
-        self.sock_file = None
+        self._disconnect()
