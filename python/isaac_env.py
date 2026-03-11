@@ -80,11 +80,29 @@ class IsaacEnv(gym.Env):
     def _connect(self):
         if self.sock is not None:
             return
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.settimeout(self.env_cfg.action_timeout)
-        self.sock.connect((self.env_cfg.host, self.env_cfg.port))
-        self.sock_file = self.sock.makefile("r")
-        log.info("Connected to %s:%d", self.env_cfg.host, self.env_cfg.port)
+        last_err = None
+        for attempt in range(self.MAX_RECONNECT_RETRIES + 1):
+            try:
+                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.sock.settimeout(self.env_cfg.action_timeout)
+                self.sock.connect((self.env_cfg.host, self.env_cfg.port))
+                self.sock_file = self.sock.makefile("r")
+                log.info("Connected to %s:%d", self.env_cfg.host, self.env_cfg.port)
+                return
+            except (ConnectionError, OSError) as e:
+                last_err = e
+                self._disconnect()
+                if attempt < self.MAX_RECONNECT_RETRIES:
+                    delay = self.RECONNECT_BACKOFF_BASE * (2 ** attempt)
+                    log.warning(
+                        "Connect failed (%s), retry %d/%d in %.1fs...",
+                        e, attempt + 1, self.MAX_RECONNECT_RETRIES, delay,
+                    )
+                    time.sleep(delay)
+        raise ConnectionError(
+            f"Failed to connect to {self.env_cfg.host}:{self.env_cfg.port} "
+            f"after {self.MAX_RECONNECT_RETRIES + 1} attempts: {last_err}"
+        )
 
     def _disconnect(self):
         """Clean up socket state."""
@@ -102,25 +120,9 @@ class IsaacEnv(gym.Env):
         self.sock_file = None
 
     def _reconnect(self):
-        """Disconnect and reconnect with exponential backoff."""
+        """Disconnect and reconnect (retry logic is in _connect)."""
         self._disconnect()
-        for attempt in range(1, self.MAX_RECONNECT_RETRIES + 1):
-            delay = self.RECONNECT_BACKOFF_BASE * (2 ** (attempt - 1))
-            log.warning(
-                "Reconnect attempt %d/%d in %.1fs...",
-                attempt, self.MAX_RECONNECT_RETRIES, delay,
-            )
-            time.sleep(delay)
-            try:
-                self._connect()
-                log.info("Reconnected on attempt %d", attempt)
-                return
-            except (ConnectionError, OSError) as e:
-                log.warning("Reconnect attempt %d failed: %s", attempt, e)
-                self._disconnect()
-        raise ConnectionError(
-            f"Failed to reconnect after {self.MAX_RECONNECT_RETRIES} attempts"
-        )
+        self._connect()
 
     def _send(self, data: dict):
         msg = json.dumps(data) + "\n"
