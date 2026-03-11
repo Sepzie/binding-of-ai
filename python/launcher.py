@@ -15,17 +15,19 @@ import argparse
 import ctypes
 import ctypes.wintypes
 import logging
+import os
 import socket
 import subprocess
 import sys
 import time
 
-from PIL import ImageGrab
+from PIL import Image
 
 log = logging.getLogger("launcher")
 
 SANDBOXIE_START = r"C:\Program Files\Sandboxie-Plus\Start.exe"
 STEAM_EXE = r"C:\Program Files (x86)\Steam\steam.exe"
+CHEAT_ENGINE = r"C:\Program Files\Cheat Engine\cheatengine-x86_64.exe"
 ISAAC_APP_ID = "250900"
 SANDBOX_PREFIX = "IsaacWorker"
 DEFAULT_BASE_PORT = 9999
@@ -80,6 +82,13 @@ def find_isaac_windows():
     return windows
 
 
+def get_pid_from_hwnd(hwnd) -> int:
+    """Get the process ID that owns the given window handle."""
+    pid = ctypes.wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value
+
+
 def get_window_rect(hwnd):
     """Get window bounding box as (left, top, right, bottom)."""
     rect = ctypes.wintypes.RECT()
@@ -88,37 +97,73 @@ def get_window_rect(hwnd):
 
 
 def window_brightness(hwnd) -> float:
-    """Grab a screenshot of the window and return average pixel brightness."""
+    """Capture the window via PrintWindow and return average pixel brightness.
+
+    Uses PrintWindow instead of ImageGrab so it works even when the window
+    is behind other windows or partially off-screen.
+    """
     rect = get_window_rect(hwnd)
-    if rect[2] - rect[0] < 10 or rect[3] - rect[1] < 10:
+    w = rect[2] - rect[0]
+    h = rect[3] - rect[1]
+    if w < 10 or h < 10:
         return 0.0
     try:
-        img = ImageGrab.grab(bbox=rect)
+        import win32gui
+        import win32ui
+        import win32con
+        # Create device contexts and bitmap
+        hwnd_dc = win32gui.GetWindowDC(hwnd)
+        mfc_dc = win32ui.CreateDCFromHandle(hwnd_dc)
+        save_dc = mfc_dc.CreateCompatibleDC()
+        bitmap = win32ui.CreateBitmap()
+        bitmap.CreateCompatibleBitmap(mfc_dc, w, h)
+        save_dc.SelectObject(bitmap)
+        # PW_RENDERFULLCONTENT = 2 captures even DX windows on some systems
+        ctypes.windll.user32.PrintWindow(hwnd, save_dc.GetSafeHdc(), 2)
+        # Convert to PIL Image
+        bmpinfo = bitmap.GetInfo()
+        bmpstr = bitmap.GetBitmapBits(True)
+        img = Image.frombuffer("RGB", (bmpinfo["bmWidth"], bmpinfo["bmHeight"]),
+                               bmpstr, "raw", "BGRX", 0, 1)
+        # Cleanup
+        win32gui.DeleteObject(bitmap.GetHandle())
+        save_dc.DeleteDC()
+        mfc_dc.DeleteDC()
+        win32gui.ReleaseDC(hwnd, hwnd_dc)
         # Sample center region (avoid window chrome)
-        w, h = img.size
-        crop = img.crop((w // 4, h // 4, 3 * w // 4, 3 * h // 4))
+        iw, ih = img.size
+        crop = img.crop((iw // 4, ih // 4, 3 * iw // 4, 3 * ih // 4))
         pixels = list(crop.getdata())
         if not pixels:
             return 0.0
         avg = sum(sum(p[:3]) / 3 for p in pixels) / len(pixels)
         return avg
-    except Exception:
+    except Exception as e:
+        log.debug("window_brightness failed: %s", e)
         return 0.0
 
 
 def wait_for_window_loaded(hwnd, title, timeout=120.0) -> bool:
     """Wait until the window shows the title screen (not black, not white).
 
-    Loading sequence: black (0) -> white splash (255) -> title screen (~20-80).
-    We wait for brightness to land in the middle range, indicating the menu.
+    Loading sequence: black (0) -> white splash (255) -> title screen (50-220).
+    Returns False quickly if brightness is unreadable (5 consecutive zeros).
     """
     deadline = time.monotonic() + timeout
+    zero_count = 0
     while time.monotonic() < deadline:
         brightness = window_brightness(hwnd)
         log.debug("Window '%s' brightness=%.1f", title, brightness)
-        if 50 < brightness < 200:
+        if 50 < brightness < 220:
             log.info("Window '%s' loaded (brightness=%.1f)", title, brightness)
             return True
+        if brightness == 0.0:
+            zero_count += 1
+            if zero_count >= 5:
+                log.warning("Window '%s' brightness unreadable (DX capture issue)", title)
+                return False
+        else:
+            zero_count = 0  # reset if we get a non-zero reading (e.g. 255)
         time.sleep(2.0)
     log.warning("Window '%s' did not load within timeout", title)
     return False
@@ -132,13 +177,28 @@ def send_start_sequence(hwnd, title):
     Enter (continue/new run) -> Enter (confirm character if new run).
     """
     log.info("Sending start keys to: %s", title)
+    # for vk, delay in [
+    #     (VK_RETURN, 1.5),   # skip intro
+    #     (VK_RETURN, 1.5),   # skip title page
+    #     (VK_RIGHT, 1.5),    # move to middle save file
+    #     (VK_RETURN, 1.5),   # select save file
+    #     (VK_RETURN, 0.5),   # continue/new run
+    #     (VK_RETURN, 0.3),   # confirm character if new run
+    # ]:
+    
     for vk, delay in [
-        (VK_RETURN, 1.5),   # skip intro
-        (VK_RETURN, 1.5),   # skip title page
-        (VK_RIGHT, 1.5),    # move to middle save file
-        (VK_RETURN, 1.5),   # select save file
-        (VK_RETURN, 0.5),   # continue/new run
-        (VK_RETURN, 0.3),   # confirm character if new run
+        (VK_RETURN, 0.3),   # Enter go Brrrr
+        (VK_RETURN, 0.3),   # rrrrrrrrrrrrrr
+        (VK_RETURN, 0.3),   # rrrrrrrrrrrrrr
+        (VK_RETURN, 0.3),   # rrrrrrrrrrrrrr
+        (VK_RETURN, 0.3),   # rrrrrrrrrrrrrr
+        (VK_RETURN, 0.3),   # rrrrrrrrrrrrrr
+        (VK_RETURN, 0.3),   # rrrrrrrrrrrrrr
+        (VK_RETURN, 0.3),   # rrrrrrrrrrrrrr
+        (VK_RETURN, 0.3),   # rrrrrrrrrrrrrr
+        (VK_RETURN, 0.3),   # rrrrrrrrrrrrrr
+        (VK_RETURN, 0.3),   # rrrrrrrrrrrrrr
+        (VK_RETURN, 0.3),   # rrrrrrrrrrrrrr
     ]:
         _send_key(hwnd, vk)
         time.sleep(delay)
@@ -182,6 +242,33 @@ def wait_for_port(host: str, port: int, timeout: float = 120.0) -> bool:
     return False
 
 
+def apply_speedhack(speed: float):
+    """Find all Isaac windows, get their PIDs, and launch CE speedhack for each."""
+    windows = find_isaac_windows()
+    if not windows:
+        log.error("No Isaac windows found for speedhack.")
+        return
+
+    seen_pids = set()
+    for hwnd, title in windows:
+        pid = get_pid_from_hwnd(hwnd)
+        if pid in seen_pids or pid == 0:
+            continue
+        seen_pids.add(pid)
+
+        # Create a temp Lua script for CE
+        script_path = os.path.join(os.environ.get("TEMP", "."), f"ce_speedhack_{pid}.lua")
+        with open(script_path, "w") as f:
+            f.write(f"openProcess({pid})\n")
+            f.write(f"speedhack_setSpeed({speed})\n")
+
+        log.info("Applying %.1fx speedhack to PID %d (%s)", speed, pid, title)
+        subprocess.Popen([CHEAT_ENGINE, script_path])
+        time.sleep(1.0)
+
+    log.info("Speedhack applied to %d process(es).", len(seen_pids))
+
+
 def terminate_all(n_workers: int):
     """Terminate all worker sandboxes."""
     for i in range(1, n_workers + 1):
@@ -208,11 +295,18 @@ def auto_start_runs(n_workers: int, timeout: float = 120.0):
     if len(windows) < n_workers:
         log.warning("Found %d/%d Isaac windows.", len(windows), n_workers)
 
-    # Wait for each window to finish loading, then send keys
-    for hwnd, title in windows:
-        if wait_for_window_loaded(hwnd, title, timeout=max(30, deadline - time.monotonic())):
+    # Try brightness detection first for each window
+    for i, (hwnd, title) in enumerate(windows, 1):
+        log.info("Checking window %d/%d: '%s' (hwnd=%s)", i, len(windows), title, hwnd)
+        if wait_for_window_loaded(hwnd, title, timeout=30.0):
             send_start_sequence(hwnd, title)
-            time.sleep(1.0)
+            time.sleep(2.0)
+
+    # Always offer manual prompt to (re)send keys to all windows
+    input(">>> Press Enter to send start keys to ALL windows...")
+    for hwnd, title in windows:
+        send_start_sequence(hwnd, title)
+        time.sleep(2.0)
 
     return True
 
@@ -231,6 +325,8 @@ def main():
     parser.add_argument("--timeout", type=float, default=120.0, help="Connection timeout per worker")
     parser.add_argument("--no-auto-start", action="store_true",
                         help="Skip auto-start (manually start runs in each window)")
+    parser.add_argument("--speed", type=float, default=0,
+                        help="Apply CE speedhack at this multiplier (e.g. 10)")
     args = parser.parse_args()
 
     if args.terminate:
@@ -262,6 +358,10 @@ def main():
         else:
             log.error("Worker %d on port %d did not become reachable", worker_id, port)
             all_ready = False
+
+    # Apply speedhack after TCP is up (game is fully running)
+    if args.speed > 0 and all_ready:
+        apply_speedhack(args.speed)
 
     if all_ready:
         log.info("All %d workers ready! Start training with:", args.workers)
