@@ -1,7 +1,7 @@
 env:
   frame_skip: 3
   max_episode_steps: 300
-  n_workers: 2
+  n_workers: 4
   base_port: 9999
 
 reward:
@@ -20,7 +20,7 @@ reward:
   nav_target_dy: 0.0
 
 train:
-  total_timesteps: 100000
+  total_timesteps: 500000
   learning_rate: 0.0003
   n_steps: 1024
   batch_size: 64
