@@ -230,6 +230,7 @@ def _make_env(config, port, game_settings):
         worker_config = replace(config, env=replace(config.env, port=port))
         env = IsaacEnv(worker_config)
         env.configure_game(game_settings)
+        env.start_run()
         return Monitor(env)
     return _init
 
@@ -257,6 +258,7 @@ def train(config_path: str | None = None, resume: str | None = None):
     else:
         isaac_env = IsaacEnv(config)
         isaac_env.configure_game(game_settings)
+        isaac_env.start_run()
         env = Monitor(isaac_env)
 
     checkpoint_dir = get_checkpoint_dir()

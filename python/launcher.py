@@ -114,7 +114,7 @@ def main():
         log.info("  python train.py --config <config.yaml>")
         log.info("  (set env.n_workers=%d and env.base_port=%d in config)",
                  args.workers, args.base_port)
-        log.info("NOTE: You must manually start a run in each Isaac window first.")
+        log.info("NOTE: train.py will auto-start runs via the mod's start_run command.")
     else:
         log.error("Some workers failed to start. Check Sandboxie and game logs.")
         sys.exit(1)
