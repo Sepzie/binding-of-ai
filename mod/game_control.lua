@@ -32,6 +32,10 @@ function GameControl.onNewRoom()
         if Config.SPAWN_PICKUP_PENNY then
             GameControl.spawnPenny(game)
         end
+        -- Teleport player to room center to avoid spawn-position bias
+        local player = Isaac.GetPlayer(0)
+        local room = game:GetRoom()
+        player.Position = room:GetCenterPos()
         waitingForReset = false
     end
 end
