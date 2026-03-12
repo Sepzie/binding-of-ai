@@ -291,6 +291,8 @@ def _build_game_settings(config):
         "pickup_radius_min": config.phase.pickup_radius_min,
         "pickup_radius_max": config.phase.pickup_radius_max,
         "terminal_on_pickup": config.phase.terminal_on_pickup,
+        "terminal_pickup_count": config.phase.terminal_pickup_count,
+        "respawn_pickup": config.phase.respawn_pickup,
         "spawn_enemies": config.phase.spawn_enemies,
         "random_spawn_positions": config.phase.random_spawn_positions,
         "spawn_radius_min": config.phase.spawn_radius_min,

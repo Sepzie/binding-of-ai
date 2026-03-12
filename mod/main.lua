@@ -15,6 +15,7 @@ local episodeId = 0
 local episodeTick = 0
 local hadEnemies = false
 local episodeStartCoins = 0
+local pickupsCollected = 0
 local lastAction = {move = 0, shoot = 0}
 local paused = false
 
@@ -32,6 +33,7 @@ function mod:onGameStart(isContinue)
     hadEnemies = false
     local player = Isaac.GetPlayer(0)
     episodeStartCoins = player and player:GetNumCoins() or 0
+    pickupsCollected = 0
     lastAction = {move = 0, shoot = 0}
     ActionInjector.reset()
 
@@ -106,6 +108,9 @@ function mod:onUpdate()
         return
     end
 
+    -- Process any pending pickup respawns from collision callbacks
+    GameControl.processPendingSpawns()
+
     episodeTick = episodeTick + 1
 
     -- Serialize state
@@ -116,6 +121,13 @@ function mod:onUpdate()
         hadEnemies = true
     end
 
+    -- Track pickups collected this episode
+    local currentCoins = player:GetNumCoins()
+    local newPickups = currentCoins - episodeStartCoins
+    if newPickups > pickupsCollected then
+        pickupsCollected = newPickups
+    end
+
     -- Detect terminal conditions
     local terminal = false
     local terminalReason = nil
@@ -123,7 +135,11 @@ function mod:onUpdate()
     if player:IsDead() then
         terminal = true
         terminalReason = "death"
-    elseif Config.TERMINAL_ON_PICKUP and player:GetNumCoins() > episodeStartCoins then
+    elseif Config.TERMINAL_PICKUP_COUNT > 0 and pickupsCollected >= Config.TERMINAL_PICKUP_COUNT then
+        terminal = true
+        terminalReason = "pickup_target_reached"
+    elseif Config.TERMINAL_ON_PICKUP and pickupsCollected > 0 then
+        -- Legacy single-pickup terminal (equivalent to TERMINAL_PICKUP_COUNT = 1)
         terminal = true
         terminalReason = "pickup_collected"
     elseif hadEnemies and state.enemy_count == 0 then
@@ -137,6 +153,7 @@ function mod:onUpdate()
     -- Add episode metadata
     state.episode_id = episodeId
     state.episode_tick = episodeTick
+    state.pickups_collected = pickupsCollected
     state.terminal = terminal
     state.terminal_reason = terminalReason
 
@@ -204,11 +221,30 @@ function mod:onInputAction(entity, inputHook, buttonAction)
     return ActionInjector.onInputAction(nil, entity, inputHook, buttonAction)
 end
 
+-- Pickup collection detection: respawn a new pickup when one is collected
+function mod:onPickupCollision(pickup, collider, low)
+    if not Config.RESPAWN_PICKUP then
+        return
+    end
+    -- Only handle coins (variant 20)
+    local coinVariant = (PickupVariant and PickupVariant.PICKUP_COIN) or 20
+    if pickup.Variant ~= coinVariant then
+        return
+    end
+    -- Only trigger for player collisions
+    if not collider or collider.Type ~= 1 then
+        return
+    end
+    -- Schedule a new penny spawn on next frame (can't spawn during collision)
+    GameControl.schedulePickupRespawn()
+end
+
 -- Register callbacks
 mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, mod.onGameStart)
 mod:AddCallback(ModCallbacks.MC_POST_NEW_ROOM, mod.onNewRoom)
 mod:AddCallback(ModCallbacks.MC_POST_UPDATE, mod.onUpdate)
 mod:AddCallback(ModCallbacks.MC_POST_RENDER, mod.onRender)
 mod:AddCallback(ModCallbacks.MC_INPUT_ACTION, mod.onInputAction)
+mod:AddCallback(ModCallbacks.MC_PRE_PICKUP_COLLISION, mod.onPickupCollision, 5)  -- 5 = ENTITY_PICKUP
 
 Isaac.ConsoleOutput("IsaacRL[" .. Config.INSTANCE_ID .. "]: Mod loaded (port " .. Config.TCP_PORT .. ")\n")

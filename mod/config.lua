@@ -31,6 +31,8 @@ Config.PICKUP_OFFSET_Y = 0
 Config.PICKUP_RADIUS_MIN = 120
 Config.PICKUP_RADIUS_MAX = 200
 Config.TERMINAL_ON_PICKUP = false
+Config.TERMINAL_PICKUP_COUNT = 0  -- 0 = disabled; N > 0 = end episode after N pickups
+Config.RESPAWN_PICKUP = false     -- spawn a new pickup when one is collected
 Config.RANDOM_SPAWN_POSITIONS = false
 Config.SPAWN_RADIUS_MIN = 80
 Config.SPAWN_RADIUS_MAX = 160

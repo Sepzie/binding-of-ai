@@ -71,6 +71,8 @@ class PhaseConfig:
     pickup_radius_min: float = 120.0
     pickup_radius_max: float = 200.0
     terminal_on_pickup: bool = False
+    terminal_pickup_count: int = 0
+    respawn_pickup: bool = False
     spawn_enemies: bool = True
     random_spawn_positions: bool = False
     spawn_radius_min: float = 80.0

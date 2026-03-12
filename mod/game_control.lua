@@ -5,6 +5,7 @@ local GameControl = {}
 local waitingForReset = false
 local resetFrame = 0
 local RESET_DELAY = 5  -- frames to wait after reset command before sending state
+local pendingPickupRespawn = false
 
 function GameControl.resetEpisode()
     Isaac.ExecuteCommand("restart")
@@ -149,6 +150,17 @@ function GameControl.spawnPenny(game)
     end
 end
 
+function GameControl.schedulePickupRespawn()
+    pendingPickupRespawn = true
+end
+
+function GameControl.processPendingSpawns()
+    if pendingPickupRespawn then
+        pendingPickupRespawn = false
+        GameControl.spawnPenny(Game())
+    end
+end
+
 function GameControl.configure(settings)
     if settings.enemy_type then
         Config.ENEMY_TYPE = settings.enemy_type
@@ -182,6 +194,12 @@ function GameControl.configure(settings)
     end
     if settings.terminal_on_pickup ~= nil then
         Config.TERMINAL_ON_PICKUP = settings.terminal_on_pickup
+    end
+    if settings.terminal_pickup_count ~= nil then
+        Config.TERMINAL_PICKUP_COUNT = settings.terminal_pickup_count
+    end
+    if settings.respawn_pickup ~= nil then
+        Config.RESPAWN_PICKUP = settings.respawn_pickup
     end
     if settings.random_spawn_positions ~= nil then
         Config.RANDOM_SPAWN_POSITIONS = settings.random_spawn_positions
