@@ -21,12 +21,18 @@ local TARGET_SPEED = tonumber(
 local SCAN_INTERVAL_MS = tonumber(
   _G.ISAAC_SPEEDHACK_SCAN_MS or os.getenv("ISAAC_SPEEDHACK_SCAN_MS") or ""
 ) or 1000
+local VERIFY_MODULE = tostring(
+  _G.ISAAC_SPEEDHACK_VERIFY_MODULE or os.getenv("ISAAC_SPEEDHACK_VERIFY_MODULE") or "0"
+):lower() == "1"
 local RETRY_COUNT = tonumber(
   _G.ISAAC_SPEEDHACK_RETRY_COUNT or os.getenv("ISAAC_SPEEDHACK_RETRY_COUNT") or ""
 ) or 3
 local RETRY_SLEEP_MS = tonumber(
   _G.ISAAC_SPEEDHACK_RETRY_SLEEP_MS or os.getenv("ISAAC_SPEEDHACK_RETRY_SLEEP_MS") or ""
 ) or 250
+local FAILURE_COOLDOWN_MS = tonumber(
+  _G.ISAAC_SPEEDHACK_FAILURE_COOLDOWN_MS or os.getenv("ISAAC_SPEEDHACK_FAILURE_COOLDOWN_MS") or ""
+) or 5000
 
 local function log(msg)
   print(("[isaac-speedhack-watch] %s"):format(msg))
@@ -52,6 +58,7 @@ if _G.ISAAC_SPEEDHACK_WATCH and _G.ISAAC_SPEEDHACK_WATCH.timer then
 end
 
 local applied_pids = {}
+local retry_after_tick = {}
 
 local function matches_target(process_name)
   local name = string.lower(tostring(process_name or ""))
@@ -95,9 +102,9 @@ local function has_speedhack_module(pid)
     return false
   end
 
-  for _, module in ipairs(modules) do
-    local module_name = string.lower(tostring(module.Name or ""))
-    if module_name:find("speedhack-", 1, true) then
+  for _, module in pairs(modules) do
+    local module_name = string.lower(tostring((type(module) == "table" and module.Name) or ""))
+    if module_name:find("speedhack", 1, true) then
       return true
     end
   end
@@ -111,6 +118,9 @@ local function apply_with_verification(pid)
     if not ok then
       last_err = err
     else
+      if not VERIFY_MODULE then
+        return true, nil
+      end
       sleep(RETRY_SLEEP_MS)
       if has_speedhack_module(pid) then
         return true, nil
@@ -122,6 +132,7 @@ local function apply_with_verification(pid)
 end
 
 local function scan_once()
+  local now_tick = getTickCount()
   local process_list = getProcesslist() or {}
   local live_targets = {}
 
@@ -130,17 +141,20 @@ local function scan_once()
       local pid = tonumber(pid_key)
       if pid then
         live_targets[pid] = true
-        if applied_pids[pid] and not has_speedhack_module(pid) then
+        if VERIFY_MODULE and applied_pids[pid] and not has_speedhack_module(pid) then
           applied_pids[pid] = nil
           log(("Speedhack module missing for pid=%d; retrying"):format(pid))
         end
 
-        if not applied_pids[pid] then
+        local not_ready_for_retry = retry_after_tick[pid] and now_tick < retry_after_tick[pid]
+        if (not applied_pids[pid]) and (not not_ready_for_retry) then
           local ok, err = apply_with_verification(pid)
           if ok then
             applied_pids[pid] = true
+            retry_after_tick[pid] = nil
             log(("Applied %.2fx to pid=%d (%s)"):format(TARGET_SPEED, pid, tostring(process_name)))
           else
+            retry_after_tick[pid] = now_tick + FAILURE_COOLDOWN_MS
             log(("Failed pid=%d (%s): %s"):format(pid, tostring(process_name), tostring(err)))
           end
         end
@@ -151,6 +165,7 @@ local function scan_once()
   for pid, _ in pairs(applied_pids) do
     if not live_targets[pid] then
       applied_pids[pid] = nil
+      retry_after_tick[pid] = nil
     end
   end
 end
@@ -178,11 +193,13 @@ _G.ISAAC_SPEEDHACK_WATCH = {
 }
 
 log(
-  ("Started: target='%s' speed=%.2fx interval=%dms retries=%d"):format(
+  ("Started: target='%s' speed=%.2fx interval=%dms retries=%d verify=%s cooldown=%dms"):format(
     TARGET_PROCESS,
     TARGET_SPEED,
     SCAN_INTERVAL_MS,
-    RETRY_COUNT
+    RETRY_COUNT,
+    VERIFY_MODULE and "on" or "off",
+    FAILURE_COOLDOWN_MS
   )
 )
 scan_once()

@@ -13,6 +13,9 @@ local TARGET_NO_EXE = TARGET_PROCESS:gsub("%.exe$", "")
 local TARGET_SPEED = tonumber(
   _G.ISAAC_SPEEDHACK_SPEED or os.getenv("ISAAC_SPEEDHACK_SPEED") or ""
 ) or 10.0
+local VERIFY_MODULE = tostring(
+  _G.ISAAC_SPEEDHACK_VERIFY_MODULE or os.getenv("ISAAC_SPEEDHACK_VERIFY_MODULE") or "0"
+):lower() == "1"
 local RETRY_COUNT = tonumber(
   _G.ISAAC_SPEEDHACK_RETRY_COUNT or os.getenv("ISAAC_SPEEDHACK_RETRY_COUNT") or ""
 ) or 3
@@ -66,9 +69,9 @@ local function has_speedhack_module(pid)
     return false
   end
 
-  for _, module in ipairs(modules) do
-    local module_name = string.lower(tostring(module.Name or ""))
-    if module_name:find("speedhack-", 1, true) then
+  for _, module in pairs(modules) do
+    local module_name = string.lower(tostring((type(module) == "table" and module.Name) or ""))
+    if module_name:find("speedhack", 1, true) then
       return true
     end
   end
@@ -82,6 +85,9 @@ local function apply_with_verification(pid)
     if not ok then
       last_err = err
     else
+      if not VERIFY_MODULE then
+        return true, nil
+      end
       sleep(RETRY_SLEEP_MS)
       if has_speedhack_module(pid) then
         return true, nil

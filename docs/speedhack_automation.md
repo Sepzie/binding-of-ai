@@ -45,6 +45,11 @@ ISAAC_SPEEDHACK_WATCH.stop()
 ```
 
 Use this when launcher starts workers in staggered order and you want CE to catch each one automatically.
+Default behavior does not require module verification (more reliable). Optional strict mode:
+
+```lua
+ISAAC_SPEEDHACK_VERIFY_MODULE = 1
+```
 
 ## Option 3: CE Autorun (persistent)
 
