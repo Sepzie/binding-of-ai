@@ -67,6 +67,10 @@ class IsaacEnv(gym.Env):
         self._ep_reward_components: dict[str, float] = {}
         self._last_terminal_reason = None
 
+        # Auto-configure: send game settings on first reset()
+        self._game_settings = self.config.to_game_settings()
+        self._configured = False
+
         # Speed diagnostics
         self._last_episode_tick = 0
         self._ep_frames_dropped = 0
@@ -202,6 +206,10 @@ class IsaacEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         self._connect()
+
+        if not self._configured:
+            self.configure_game(self._game_settings)
+            self._configured = True
 
         # Log previous episode summary
         if self._episode_num > 0:

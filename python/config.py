@@ -99,6 +99,31 @@ class Config:
     phase: PhaseConfig = field(default_factory=PhaseConfig)
     wandb: WandbConfig = field(default_factory=WandbConfig)
 
+    def to_game_settings(self) -> dict:
+        """Build the settings dict sent to the Lua mod's configure command."""
+        return {
+            "enemy_type": self.phase.enemy_type,
+            "enemy_variant": self.phase.enemy_variant,
+            "enemy_count": self.phase.enemy_count,
+            "enemy_collision_damage": self.phase.enemy_collision_damage,
+            "spawn_pickup_penny": self.phase.spawn_pickup_penny,
+            "pickup_random_position": self.phase.pickup_random_position,
+            "pickup_offset_x": self.phase.pickup_offset_x,
+            "pickup_offset_y": self.phase.pickup_offset_y,
+            "pickup_radius_min": self.phase.pickup_radius_min,
+            "pickup_radius_max": self.phase.pickup_radius_max,
+            "terminal_on_pickup": self.phase.terminal_on_pickup,
+            "terminal_pickup_count": self.phase.terminal_pickup_count,
+            "respawn_pickup": self.phase.respawn_pickup,
+            "spawn_enemies": self.phase.spawn_enemies,
+            "random_spawn_positions": self.phase.random_spawn_positions,
+            "spawn_radius_min": self.phase.spawn_radius_min,
+            "spawn_radius_max": self.phase.spawn_radius_max,
+            "disable_shooting": self.phase.disable_shooting,
+            "frame_skip": self.env.frame_skip,
+            "max_episode_ticks": self.env.max_episode_steps,
+        }
+
 
 def load_config(path: str | None = None) -> Config:
     """Load config from YAML file, falling back to defaults."""

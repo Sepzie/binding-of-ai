@@ -276,38 +276,11 @@ class IsaacMetricsCallback(BaseCallback):
             wandb.log(train_metrics, step=step)
 
 
-def _build_game_settings(config):
-    """Build the settings dict sent to the Lua mod's configure command."""
-    return {
-        "enemy_type": config.phase.enemy_type,
-        "enemy_variant": config.phase.enemy_variant,
-        "enemy_count": config.phase.enemy_count,
-        "enemy_collision_damage": config.phase.enemy_collision_damage,
-        "spawn_pickup_penny": config.phase.spawn_pickup_penny,
-        "pickup_random_position": config.phase.pickup_random_position,
-        "pickup_offset_x": config.phase.pickup_offset_x,
-        "pickup_offset_y": config.phase.pickup_offset_y,
-        "pickup_radius_min": config.phase.pickup_radius_min,
-        "pickup_radius_max": config.phase.pickup_radius_max,
-        "terminal_on_pickup": config.phase.terminal_on_pickup,
-        "terminal_pickup_count": config.phase.terminal_pickup_count,
-        "respawn_pickup": config.phase.respawn_pickup,
-        "spawn_enemies": config.phase.spawn_enemies,
-        "random_spawn_positions": config.phase.random_spawn_positions,
-        "spawn_radius_min": config.phase.spawn_radius_min,
-        "spawn_radius_max": config.phase.spawn_radius_max,
-        "disable_shooting": config.phase.disable_shooting,
-        "frame_skip": config.env.frame_skip,
-        "max_episode_ticks": config.env.max_episode_steps,
-    }
-
-
-def _make_env(config, port, game_settings):
+def _make_env(config, port):
     """Factory that creates a single IsaacEnv with the given port."""
     def _init():
         worker_config = replace(config, env=replace(config.env, port=port))
         env = IsaacEnv(worker_config)
-        env.configure_game(game_settings)
         return Monitor(env)
     return _init
 
@@ -327,15 +300,13 @@ def train(config_path: str | None = None, resume: str | None = None, config=None
     n_workers = config.env.n_workers
     base_port = config.env.base_port
     host = config.env.host
-    game_settings = _build_game_settings(config)
-
     if n_workers > 1:
         ports = [base_port + i for i in range(n_workers)]
         log.info("Starting vectorized training with %d workers (ports %d-%d)",
                  n_workers, base_port, base_port + n_workers - 1)
         log.info("Expecting Isaac workers reachable at %s on ports: %s",
                  host, ", ".join(str(p) for p in ports))
-        env_fns = [_make_env(config, base_port + i, game_settings) for i in range(n_workers)]
+        env_fns = [_make_env(config, base_port + i) for i in range(n_workers)]
         try:
             env = SubprocVecEnv(env_fns)
         except Exception as exc:
@@ -349,7 +320,6 @@ def train(config_path: str | None = None, resume: str | None = None, config=None
     else:
         log.info("Starting single-worker training (expecting %s:%d)", host, base_port)
         isaac_env = IsaacEnv(config)
-        isaac_env.configure_game(game_settings)
         env = Monitor(isaac_env)
 
     checkpoint_dir = get_checkpoint_dir()
