@@ -21,6 +21,12 @@ local TARGET_SPEED = tonumber(
 local SCAN_INTERVAL_MS = tonumber(
   _G.ISAAC_SPEEDHACK_SCAN_MS or os.getenv("ISAAC_SPEEDHACK_SCAN_MS") or ""
 ) or 1000
+local RETRY_COUNT = tonumber(
+  _G.ISAAC_SPEEDHACK_RETRY_COUNT or os.getenv("ISAAC_SPEEDHACK_RETRY_COUNT") or ""
+) or 3
+local RETRY_SLEEP_MS = tonumber(
+  _G.ISAAC_SPEEDHACK_RETRY_SLEEP_MS or os.getenv("ISAAC_SPEEDHACK_RETRY_SLEEP_MS") or ""
+) or 250
 
 local function log(msg)
   print(("[isaac-speedhack-watch] %s"):format(msg))
@@ -81,6 +87,40 @@ local function attach_and_speedhack(pid)
   return true, nil
 end
 
+local function has_speedhack_module(pid)
+  local ok_enum, modules = pcall(function()
+    return enumModules(pid)
+  end)
+  if not ok_enum or type(modules) ~= "table" then
+    return false
+  end
+
+  for _, module in ipairs(modules) do
+    local module_name = string.lower(tostring(module.Name or ""))
+    if module_name:find("speedhack-", 1, true) then
+      return true
+    end
+  end
+  return false
+end
+
+local function apply_with_verification(pid)
+  local last_err = "unknown error"
+  for _ = 1, RETRY_COUNT do
+    local ok, err = attach_and_speedhack(pid)
+    if not ok then
+      last_err = err
+    else
+      sleep(RETRY_SLEEP_MS)
+      if has_speedhack_module(pid) then
+        return true, nil
+      end
+      last_err = "speedhack module not present after setSpeed"
+    end
+  end
+  return false, last_err
+end
+
 local function scan_once()
   local process_list = getProcesslist() or {}
   local live_targets = {}
@@ -90,8 +130,13 @@ local function scan_once()
       local pid = tonumber(pid_key)
       if pid then
         live_targets[pid] = true
+        if applied_pids[pid] and not has_speedhack_module(pid) then
+          applied_pids[pid] = nil
+          log(("Speedhack module missing for pid=%d; retrying"):format(pid))
+        end
+
         if not applied_pids[pid] then
-          local ok, err = attach_and_speedhack(pid)
+          local ok, err = apply_with_verification(pid)
           if ok then
             applied_pids[pid] = true
             log(("Applied %.2fx to pid=%d (%s)"):format(TARGET_SPEED, pid, tostring(process_name)))
@@ -133,10 +178,11 @@ _G.ISAAC_SPEEDHACK_WATCH = {
 }
 
 log(
-  ("Started: target='%s' speed=%.2fx interval=%dms"):format(
+  ("Started: target='%s' speed=%.2fx interval=%dms retries=%d"):format(
     TARGET_PROCESS,
     TARGET_SPEED,
-    SCAN_INTERVAL_MS
+    SCAN_INTERVAL_MS,
+    RETRY_COUNT
   )
 )
 scan_once()

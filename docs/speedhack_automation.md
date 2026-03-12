@@ -23,6 +23,7 @@ dofile([[C:\Projects\binding-of-ai\scripts\ce_speedhack_once.lua]])
 ```
 
 Use this when all Isaac instances are already running and you just want to apply speed once.
+The script retries and verifies that the speedhack module is loaded in each process.
 
 ## Option 2: Watch Mode (manual run in CE)
 
@@ -33,6 +34,7 @@ Use this when all Isaac instances are already running and you just want to apply
 ```lua
 ISAAC_SPEEDHACK_SPEED = 10.0
 ISAAC_SPEEDHACK_SCAN_MS = 1000
+ISAAC_SPEEDHACK_RETRY_COUNT = 3
 dofile([[C:\Projects\binding-of-ai\scripts\ce_speedhack_watch.lua]])
 ```
 
@@ -65,3 +67,4 @@ Remove autorun:
 ```
 
 Use this for the least manual overhead across sessions.
+If you already installed autorun before updating scripts, run the install command again so CE picks up any changed defaults.
