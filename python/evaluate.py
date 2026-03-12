@@ -126,9 +126,6 @@ def evaluate(
             },
             job_type="eval",
         )
-        # Use episode number as x-axis instead of W&B's global step
-        wandb.define_metric("eval/episode")
-        wandb.define_metric("eval/*", step_metric="eval/episode")
 
     episode_rewards = []
     episode_lengths = []
@@ -165,12 +162,11 @@ def evaluate(
 
         if wandb_run:
             wandb.log({
-                "eval/episode": ep + 1,
                 "eval/episode_reward": total_reward,
                 "eval/episode_length": steps,
                 "eval/won": float(cleared),
                 "eval/pickup": float(pickup),
-            })
+            }, step=ep + 1)
 
     mean_reward = float(np.mean(episode_rewards))
     std_reward = float(np.std(episode_rewards))

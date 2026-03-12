@@ -210,7 +210,6 @@ class IsaacMetricsCallback(BaseCallback):
 
             # Gameplay metrics
             metrics = {
-                "episode/count": self._ep_count,
                 "episode/reward": ep_reward,
                 "episode/length": ep_length,
                 "episode/won": won,
@@ -236,7 +235,7 @@ class IsaacMetricsCallback(BaseCallback):
             if tps > 0:
                 metrics["perf/game_ticks_per_sec"] = tps
 
-            wandb.log(metrics)
+            wandb.log(metrics, step=self.num_timesteps)
 
         # Forward PPO training metrics to wandb (logged by SB3 to its internal logger)
         if self.use_wandb and self.model is not None:
@@ -273,8 +272,7 @@ class IsaacMetricsCallback(BaseCallback):
             if sb3_key in name_to_value:
                 train_metrics[wandb_key] = name_to_value[sb3_key]
         if train_metrics:
-            train_metrics["global_step"] = step
-            wandb.log(train_metrics)
+            wandb.log(train_metrics, step=step)
 
 
 def _build_game_settings(config):
@@ -356,13 +354,6 @@ def train(config_path: str | None = None, resume: str | None = None, config=None
             tags=config.wandb.tags,
             config=asdict(config),
         )
-        # Define x-axes: episode/rollout metrics use episode count, train/* uses training step
-        wandb.define_metric("episode/count")
-        wandb.define_metric("episode/*", step_metric="episode/count")
-        wandb.define_metric("rollout/*", step_metric="episode/count")
-        wandb.define_metric("reward/*", step_metric="episode/count")
-        wandb.define_metric("perf/*", step_metric="episode/count")
-        wandb.define_metric("train/*", step_metric="global_step")
 
     # Checkpoint manager — per-run folders, metadata, W&B artifacts
     ckpt_manager = CheckpointManager(
