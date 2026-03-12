@@ -15,6 +15,7 @@ import argparse
 import ctypes
 import ctypes.wintypes
 import logging
+import os
 from pathlib import Path
 import socket
 import subprocess
@@ -23,15 +24,21 @@ import time
 from typing import Optional
 
 from PIL import Image
+from win32_utils import (
+    VK_RETURN,
+    VK_RIGHT,
+    get_window_rect,
+    send_key,
+)
 
 log = logging.getLogger("launcher")
 
-SANDBOXIE_START = r"C:\Program Files\Sandboxie-Plus\Start.exe"
-STEAM_EXE = r"C:\Program Files (x86)\Steam\steam.exe"
-ISAAC_APP_ID = "250900"
+SANDBOXIE_START = os.getenv("SANDBOXIE_PATH", r"C:\Program Files\Sandboxie-Plus\Start.exe")
+STEAM_EXE = os.getenv("STEAM_PATH", r"C:\Program Files (x86)\Steam\steam.exe")
+ISAAC_APP_ID = os.getenv("ISAAC_APP_ID", "250900")
 SANDBOX_PREFIX = "IsaacWorker"
 DEFAULT_BASE_PORT = 9999
-CHEAT_ENGINE_DIR = r"C:\Program Files\Cheat Engine"
+CHEAT_ENGINE_DIR = os.getenv("CHEAT_ENGINE_DIR", r"C:\Program Files\Cheat Engine")
 CHEAT_ENGINE_EXE_CANDIDATES = [
     "cheatengine-x86_64.exe",
     "cheatengine-x86_64-SSE4-AVX2.exe",
@@ -50,30 +57,9 @@ CHEAT_ENGINE_AUTORUN_FILE = Path(
 
 # Windows API
 user32 = ctypes.windll.user32
-WM_KEYDOWN = 0x0100
-WM_KEYUP = 0x0101
-VK_RETURN = 0x0D
-VK_RIGHT = 0x27
-# Scan codes for lParam
-SC_ENTER = 0x1C
-SC_RIGHT = 0x4D
-
-# Map VK to scan code for PostMessage lParam
-_VK_TO_SC = {VK_RETURN: SC_ENTER, VK_RIGHT: SC_RIGHT}
-_EXTENDED_KEYS = {VK_RIGHT}  # Arrow keys need extended bit (bit 24)
 
 
 # ---------- Window / input helpers ----------
-
-def _send_key(hwnd, vk_code):
-    """Send a single keypress via PostMessage (works for Isaac in Sandboxie)."""
-    sc = _VK_TO_SC.get(vk_code, 0)
-    extended = (1 << 24) if vk_code in _EXTENDED_KEYS else 0
-    lparam_down = extended | (sc << 16) | 1
-    lparam_up = extended | (sc << 16) | 1 | (1 << 30) | (1 << 31)
-    user32.PostMessageW(hwnd, WM_KEYDOWN, vk_code, lparam_down)
-    time.sleep(0.05)
-    user32.PostMessageW(hwnd, WM_KEYUP, vk_code, lparam_up)
 
 
 def find_isaac_windows():
@@ -96,20 +82,6 @@ def find_isaac_windows():
     )
     user32.EnumWindows(WNDENUMPROC(callback), 0)
     return windows
-
-
-def get_pid_from_hwnd(hwnd) -> int:
-    """Get the process ID that owns the given window handle."""
-    pid = ctypes.wintypes.DWORD()
-    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-    return pid.value
-
-
-def get_window_rect(hwnd):
-    """Get window bounding box as (left, top, right, bottom)."""
-    rect = ctypes.wintypes.RECT()
-    user32.GetWindowRect(hwnd, ctypes.byref(rect))
-    return (rect.left, rect.top, rect.right, rect.bottom)
 
 
 def window_brightness(hwnd) -> float:
@@ -216,7 +188,7 @@ def send_start_sequence(hwnd, title):
         (VK_RETURN, 0.3),   # rrrrrrrrrrrrrr
         (VK_RETURN, 0.3),   # rrrrrrrrrrrrrr
     ]:
-        _send_key(hwnd, vk)
+        send_key(hwnd, vk)
         time.sleep(delay)
 
 

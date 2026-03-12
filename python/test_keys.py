@@ -6,33 +6,9 @@ import ctypes
 import ctypes.wintypes
 import time
 
+from win32_utils import VK_RETURN, VK_RIGHT, send_key
+
 user32 = ctypes.windll.user32
-
-# Virtual key codes
-VK_RETURN = 0x0D
-VK_RIGHT = 0x27
-
-# Scan codes
-SC_ENTER = 0x1C
-SC_RIGHT = 0x4D
-
-# WM messages
-WM_KEYDOWN = 0x0100
-WM_KEYUP = 0x0101
-
-_VK_TO_SC = {VK_RETURN: SC_ENTER, VK_RIGHT: SC_RIGHT}
-_EXTENDED_KEYS = {VK_RIGHT}  # Arrow keys need extended bit (bit 24)
-
-
-def send_key(hwnd, vk):
-    sc = _VK_TO_SC.get(vk, 0)
-    extended = (1 << 24) if vk in _EXTENDED_KEYS else 0
-    lparam_down = extended | (sc << 16) | 1
-    lparam_up = extended | (sc << 16) | 1 | (1 << 30) | (1 << 31)
-    user32.PostMessageW(hwnd, WM_KEYDOWN, vk, lparam_down)
-    time.sleep(0.05)
-    user32.PostMessageW(hwnd, WM_KEYUP, vk, lparam_up)
-
 
 def find_isaac():
     windows = []
