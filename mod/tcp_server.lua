@@ -103,16 +103,14 @@ function TcpServer:sendState(stateTable)
     if not self.client then
         return false
     end
+    -- Use infinite timeout for send — in lock-step mode the buffer should
+    -- always have room because Python reads before sending the next action.
+    self.client:settimeout(nil)
     local ok, err = self.client:send(data .. "\n")
+    self.client:settimeout(self.timeout)  -- restore
     if not ok then
-        if err == "timeout" then
-            -- Transient backpressure: drop frame, keep connection alive
-            Isaac.ConsoleOutput("IsaacRL: Send timeout, dropping frame\n")
-        else
-            -- Connection lost (closed, reset, etc.): disconnect so we can accept a new client
-            Isaac.ConsoleOutput("IsaacRL: Send error (" .. tostring(err) .. "), disconnecting\n")
-            self:handleDisconnect()
-        end
+        Isaac.ConsoleOutput("IsaacRL: Send error (" .. tostring(err) .. "), disconnecting\n")
+        self:handleDisconnect()
         return false
     end
     return true
@@ -137,6 +135,28 @@ function TcpServer:receiveActionSocket()
         else
             Isaac.ConsoleOutput("IsaacRL: JSON decode error\n")
             return nil
+        end
+    elseif err == "closed" then
+        self:handleDisconnect()
+    end
+    return nil
+end
+
+--- Block until Python sends a message (infinite timeout).
+-- Used after sendState to lock-step Lua with Python's action loop.
+function TcpServer:waitForAction()
+    if self.use_file_ipc or not self.client then
+        return nil
+    end
+    self.client:settimeout(nil)  -- block indefinitely
+    local data, err = self.client:receive("*l")
+    self.client:settimeout(self.timeout)  -- restore normal timeout
+    if data then
+        local ok, msg = pcall(json.decode, data)
+        if ok then
+            return msg
+        else
+            Isaac.ConsoleOutput("IsaacRL: JSON decode error in waitForAction\n")
         end
     elseif err == "closed" then
         self:handleDisconnect()

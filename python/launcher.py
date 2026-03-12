@@ -15,7 +15,6 @@ import argparse
 import ctypes
 import ctypes.wintypes
 import logging
-import os
 import socket
 import subprocess
 import sys
@@ -27,7 +26,6 @@ log = logging.getLogger("launcher")
 
 SANDBOXIE_START = r"C:\Program Files\Sandboxie-Plus\Start.exe"
 STEAM_EXE = r"C:\Program Files (x86)\Steam\steam.exe"
-CHEAT_ENGINE = r"C:\Program Files\Cheat Engine\cheatengine-x86_64.exe"
 ISAAC_APP_ID = "250900"
 SANDBOX_PREFIX = "IsaacWorker"
 DEFAULT_BASE_PORT = 9999
@@ -242,32 +240,6 @@ def wait_for_port(host: str, port: int, timeout: float = 120.0) -> bool:
     return False
 
 
-def apply_speedhack(speed: float):
-    """Find all Isaac windows, get their PIDs, and launch CE speedhack for each."""
-    windows = find_isaac_windows()
-    if not windows:
-        log.error("No Isaac windows found for speedhack.")
-        return
-
-    seen_pids = set()
-    for hwnd, title in windows:
-        pid = get_pid_from_hwnd(hwnd)
-        if pid in seen_pids or pid == 0:
-            continue
-        seen_pids.add(pid)
-
-        # Create a temp Lua script for CE
-        script_path = os.path.join(os.environ.get("TEMP", "."), f"ce_speedhack_{pid}.lua")
-        with open(script_path, "w") as f:
-            f.write(f"openProcess({pid})\n")
-            f.write(f"speedhack_setSpeed({speed})\n")
-
-        log.info("Applying %.1fx speedhack to PID %d (%s)", speed, pid, title)
-        subprocess.Popen([CHEAT_ENGINE, script_path])
-        time.sleep(1.0)
-
-    log.info("Speedhack applied to %d process(es).", len(seen_pids))
-
 
 def terminate_all(n_workers: int):
     """Terminate all worker sandboxes."""
@@ -325,8 +297,6 @@ def main():
     parser.add_argument("--timeout", type=float, default=120.0, help="Connection timeout per worker")
     parser.add_argument("--no-auto-start", action="store_true",
                         help="Skip auto-start (manually start runs in each window)")
-    parser.add_argument("--speed", type=float, default=0,
-                        help="Apply CE speedhack at this multiplier (e.g. 10)")
     args = parser.parse_args()
 
     if args.terminate:
@@ -358,10 +328,6 @@ def main():
         else:
             log.error("Worker %d on port %d did not become reachable", worker_id, port)
             all_ready = False
-
-    # Apply speedhack after TCP is up (game is fully running)
-    if args.speed > 0 and all_ready:
-        apply_speedhack(args.speed)
 
     if all_ready:
         log.info("All %d workers ready! Start training with:", args.workers)

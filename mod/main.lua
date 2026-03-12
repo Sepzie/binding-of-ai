@@ -140,13 +140,13 @@ function mod:onUpdate()
     state.terminal = terminal
     state.terminal_reason = terminalReason
 
-    -- Send state (one-way, don't wait for response)
+    -- Send state to Python
     local sent = server:sendState(state)
     if not sent then
         return
     end
 
-    -- If terminal: restart immediately
+    -- If terminal: restart immediately (Python will call reset, no action needed)
     if terminal then
         Isaac.ConsoleOutput("IsaacRL[" .. Config.INSTANCE_ID .. "]: Episode " .. episodeId .. " ended (" .. terminalReason .. ")\n")
         ActionInjector.reset()
@@ -156,12 +156,12 @@ function mod:onUpdate()
         return
     end
 
-    -- Poll for messages from Python (non-blocking, drain all buffered)
-    while true do
-        local message = server:pollAction()
-        if not message then break end
+    -- Block until Python sends the next action (lock-step protocol).
+    -- This prevents the game from running ahead of the agent, which would
+    -- cause frame drops and corrupt the training signal.
+    local message = server:waitForAction()
+    if message then
         handleMessage(message)
-        -- If reset was triggered, stop processing
         if GameControl.isResetting() then
             return
         end
