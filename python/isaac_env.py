@@ -236,7 +236,9 @@ class IsaacEnv(gym.Env):
         self.reward_shaper.reset()
 
         if self._last_episode_id == 0:
-            # First episode: send reset to force a clean start with configured settings
+            # First episode in this Python process: force game back to active play
+            # and request a fresh episode so stale paused state cannot leak across runs.
+            self._send({"command": "resume"})
             self._send({"command": "reset"})
             log.debug("Initial reset sent, waiting for first episode...")
 
@@ -384,4 +386,10 @@ class IsaacEnv(gym.Env):
         self._send({"command": "configure", "settings": settings})
 
     def close(self):
+        # Best-effort cleanup: don't leave the game paused when training exits.
+        if self.sock is not None:
+            try:
+                self._send({"command": "resume"})
+            except (ConnectionError, OSError, TimeoutError, socket.timeout):
+                pass
         self._disconnect()

@@ -58,8 +58,15 @@ local function handleMessage(message)
         paused = true
     elseif message.command == "resume" then
         paused = false
+    elseif message.command == "start_run" then
+        -- Best-effort clean restart for a newly attached trainer session.
+        paused = false
+        ActionInjector.reset()
+        lastAction = {move = 0, shoot = 0}
+        GameControl.resetEpisode()
     elseif message.command == "reset" then
         -- Manual/initial reset
+        paused = false
         ActionInjector.reset()
         lastAction = {move = 0, shoot = 0}
         GameControl.resetEpisode()
@@ -245,6 +252,6 @@ mod:AddCallback(ModCallbacks.MC_POST_NEW_ROOM, mod.onNewRoom)
 mod:AddCallback(ModCallbacks.MC_POST_UPDATE, mod.onUpdate)
 mod:AddCallback(ModCallbacks.MC_POST_RENDER, mod.onRender)
 mod:AddCallback(ModCallbacks.MC_INPUT_ACTION, mod.onInputAction)
-mod:AddCallback(ModCallbacks.MC_PRE_PICKUP_COLLISION, mod.onPickupCollision, 5)  -- 5 = ENTITY_PICKUP
+mod:AddCallback(ModCallbacks.MC_PRE_PICKUP_COLLISION, mod.onPickupCollision, 20)  -- 20 = PickupVariant.PICKUP_COIN
 
 Isaac.ConsoleOutput("IsaacRL[" .. Config.INSTANCE_ID .. "]: Mod loaded (port " .. Config.TCP_PORT .. ")\n")
