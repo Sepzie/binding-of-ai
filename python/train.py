@@ -325,14 +325,28 @@ def train(config_path: str | None = None, resume: str | None = None, config=None
         config = load_config(config_path)
     n_workers = config.env.n_workers
     base_port = config.env.base_port
+    host = config.env.host
     game_settings = _build_game_settings(config)
 
     if n_workers > 1:
+        ports = [base_port + i for i in range(n_workers)]
         log.info("Starting vectorized training with %d workers (ports %d-%d)",
                  n_workers, base_port, base_port + n_workers - 1)
+        log.info("Expecting Isaac workers reachable at %s on ports: %s",
+                 host, ", ".join(str(p) for p in ports))
         env_fns = [_make_env(config, base_port + i, game_settings) for i in range(n_workers)]
-        env = SubprocVecEnv(env_fns)
+        try:
+            env = SubprocVecEnv(env_fns)
+        except Exception as exc:
+            raise RuntimeError(
+                "Failed to initialize one or more Isaac workers. "
+                f"Expected {n_workers} active game instances at {host} on ports "
+                f"{base_port}-{base_port + n_workers - 1}. "
+                "If you only have one game window, set env.n_workers: 1. "
+                "For parallel runs, launch workers first via python/launcher.py."
+            ) from exc
     else:
+        log.info("Starting single-worker training (expecting %s:%d)", host, base_port)
         isaac_env = IsaacEnv(config)
         isaac_env.configure_game(game_settings)
         env = Monitor(isaac_env)

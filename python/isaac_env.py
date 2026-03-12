@@ -95,8 +95,9 @@ class IsaacEnv(gym.Env):
                 if attempt < self.MAX_RECONNECT_RETRIES:
                     delay = self.RECONNECT_BACKOFF_BASE * (2 ** attempt)
                     log.warning(
-                        "Connect failed (%s), retry %d/%d in %.1fs...",
-                        e, attempt + 1, self.MAX_RECONNECT_RETRIES, delay,
+                        "Connect failed to %s:%d (%s), retry %d/%d in %.1fs...",
+                        self.env_cfg.host, self.env_cfg.port, e,
+                        attempt + 1, self.MAX_RECONNECT_RETRIES, delay,
                     )
                     time.sleep(delay)
         raise ConnectionError(

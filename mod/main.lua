@@ -56,17 +56,21 @@ local function handleMessage(message)
         end
     elseif message.command == "pause" then
         paused = true
+        Isaac.ConsoleOutput("IsaacRL[" .. Config.INSTANCE_ID .. "]: Received pause command\n")
     elseif message.command == "resume" then
         paused = false
+        Isaac.ConsoleOutput("IsaacRL[" .. Config.INSTANCE_ID .. "]: Received resume command\n")
     elseif message.command == "start_run" then
         -- Best-effort clean restart for a newly attached trainer session.
         paused = false
+        Isaac.ConsoleOutput("IsaacRL[" .. Config.INSTANCE_ID .. "]: Received start_run command\n")
         ActionInjector.reset()
         lastAction = {move = 0, shoot = 0}
         GameControl.resetEpisode()
     elseif message.command == "reset" then
         -- Manual/initial reset
         paused = false
+        Isaac.ConsoleOutput("IsaacRL[" .. Config.INSTANCE_ID .. "]: Received reset command\n")
         ActionInjector.reset()
         lastAction = {move = 0, shoot = 0}
         GameControl.resetEpisode()
