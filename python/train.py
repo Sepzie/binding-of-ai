@@ -1,5 +1,6 @@
 import argparse
 import logging
+import math
 import signal
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -149,9 +150,10 @@ class IsaacMetricsCallback(BaseCallback):
 
     ROLLING_WINDOW = 50
 
-    def __init__(self, use_wandb=False, verbose=0):
+    def __init__(self, use_wandb=False, include_continuous_features=False, verbose=0):
         super().__init__(verbose)
         self.use_wandb = use_wandb
+        self.include_continuous_features = include_continuous_features
         self._ep_count = 0
         # Rolling window buffers
         self._recent_rewards: list[float] = []
@@ -159,6 +161,91 @@ class IsaacMetricsCallback(BaseCallback):
         self._recent_wins: list[float] = []
         self._recent_pickups: list[float] = []
         self._last_train_log_step = 0
+        self._nav_stats_by_env: dict[int, dict] = {}
+
+    @staticmethod
+    def _fresh_nav_stats() -> dict:
+        return {
+            "steps": 0,
+            "pickup_target_steps": 0,
+            "pickup_dist_sum": 0.0,
+            "pickup_no_target_steps": 0,
+            "enemy_no_target_steps": 0,
+            "projectile_no_target_steps": 0,
+            "alignment_sum": 0.0,
+            "alignment_count": 0,
+            "prev_pos": None,
+        }
+
+    def _update_nav_stats(self, env_idx: int, state) -> None:
+        if state is None:
+            return
+        stats = self._nav_stats_by_env.setdefault(env_idx, self._fresh_nav_stats())
+        stats["steps"] += 1
+
+        p = state.player
+        pickup_dx = float(p.nearest_pickup_dx)
+        pickup_dy = float(p.nearest_pickup_dy)
+        enemy_dx = float(p.nearest_enemy_dx)
+        enemy_dy = float(p.nearest_enemy_dy)
+        projectile_dx = float(p.nearest_projectile_dx)
+        projectile_dy = float(p.nearest_projectile_dy)
+
+        pickup_has_target = abs(pickup_dx) > 1e-8 or abs(pickup_dy) > 1e-8
+        if pickup_has_target:
+            pickup_dist = math.sqrt(pickup_dx * pickup_dx + pickup_dy * pickup_dy)
+            stats["pickup_dist_sum"] += pickup_dist
+            stats["pickup_target_steps"] += 1
+        else:
+            stats["pickup_no_target_steps"] += 1
+
+        if abs(enemy_dx) <= 1e-8 and abs(enemy_dy) <= 1e-8:
+            stats["enemy_no_target_steps"] += 1
+
+        if abs(projectile_dx) <= 1e-8 and abs(projectile_dy) <= 1e-8:
+            stats["projectile_no_target_steps"] += 1
+
+        prev_pos = stats["prev_pos"]
+        curr_pos = p.position
+        if (
+            pickup_has_target
+            and prev_pos is not None
+            and curr_pos is not None
+        ):
+            move_dx = float(curr_pos[0] - prev_pos[0])
+            move_dy = float(curr_pos[1] - prev_pos[1])
+            move_norm = math.sqrt(move_dx * move_dx + move_dy * move_dy)
+            target_norm = math.sqrt(pickup_dx * pickup_dx + pickup_dy * pickup_dy)
+            if move_norm > 1e-8 and target_norm > 1e-8:
+                cosine = (move_dx * pickup_dx + move_dy * pickup_dy) / (move_norm * target_norm)
+                cosine = max(-1.0, min(1.0, cosine))
+                stats["alignment_sum"] += cosine
+                stats["alignment_count"] += 1
+
+        if curr_pos is not None:
+            stats["prev_pos"] = curr_pos
+
+    def _compute_nav_metrics(self, env_idx: int) -> dict[str, float]:
+        stats = self._nav_stats_by_env.setdefault(env_idx, self._fresh_nav_stats())
+        steps = max(1, stats["steps"])
+        pickup_target_steps = stats["pickup_target_steps"]
+        alignment_count = stats["alignment_count"]
+        return {
+            "nav/pickup_dist_mean": (
+                stats["pickup_dist_sum"] / pickup_target_steps if pickup_target_steps > 0 else 0.0
+            ),
+            "nav/pickup_alignment": (
+                stats["alignment_sum"] / alignment_count if alignment_count > 0 else 0.0
+            ),
+            "state/no_target_rate_pickup": stats["pickup_no_target_steps"] / steps,
+            "state/no_target_rate_enemy": stats["enemy_no_target_steps"] / steps,
+            "state/no_target_rate_projectile": stats["projectile_no_target_steps"] / steps,
+            "state/target_rate_pickup": pickup_target_steps / steps,
+            "state/alignment_sample_rate": alignment_count / steps,
+        }
+
+    def _reset_nav_stats(self, env_idx: int) -> None:
+        self._nav_stats_by_env[env_idx] = self._fresh_nav_stats()
 
     def _append_rolling(self, rewards, lengths, won, pickup):
         w = self.ROLLING_WINDOW
@@ -184,7 +271,11 @@ class IsaacMetricsCallback(BaseCallback):
         }
 
     def _on_step(self) -> bool:
-        for info in self.locals.get("infos", []):
+        infos = self.locals.get("infos", [])
+        for env_idx, info in enumerate(infos):
+            if self.include_continuous_features:
+                self._update_nav_stats(env_idx, info.get("state"))
+
             if "episode" not in info:
                 continue
             self._ep_count += 1
@@ -200,16 +291,32 @@ class IsaacMetricsCallback(BaseCallback):
             won = float(reason == "room_cleared")
             pickup = float(info.get("ep_reward_components", {}).get("pickup_collected", 0) > 0)
             self._append_rolling(ep_reward, ep_length, won, pickup)
+            nav_metrics = self._compute_nav_metrics(env_idx) if self.include_continuous_features else {}
 
             # Console summary (visible in main process)
             log = logging.getLogger("train")
-            log.info(
-                "EP %d (%s) | steps=%d reward=%.1f kills=%d dmg=%d ticks/s=%.1f [t=%d]",
-                self._ep_count, reason, ep_length, ep_reward, kills, dmg, tps,
-                self.num_timesteps,
-            )
+            if nav_metrics:
+                log.info(
+                    "EP %d (%s) | steps=%d reward=%.1f kills=%d dmg=%d ticks/s=%.1f "
+                    "pickup_dist=%.3f align=%.3f no_target(p/e/pr)=%.2f/%.2f/%.2f [t=%d]",
+                    self._ep_count, reason, ep_length, ep_reward, kills, dmg, tps,
+                    nav_metrics["nav/pickup_dist_mean"],
+                    nav_metrics["nav/pickup_alignment"],
+                    nav_metrics["state/no_target_rate_pickup"],
+                    nav_metrics["state/no_target_rate_enemy"],
+                    nav_metrics["state/no_target_rate_projectile"],
+                    self.num_timesteps,
+                )
+            else:
+                log.info(
+                    "EP %d (%s) | steps=%d reward=%.1f kills=%d dmg=%d ticks/s=%.1f [t=%d]",
+                    self._ep_count, reason, ep_length, ep_reward, kills, dmg, tps,
+                    self.num_timesteps,
+                )
 
             if not self.use_wandb:
+                if self.include_continuous_features:
+                    self._reset_nav_stats(env_idx)
                 continue
             import wandb
 
@@ -225,6 +332,7 @@ class IsaacMetricsCallback(BaseCallback):
 
             # Rolling averages
             metrics.update(self._rolling_metrics())
+            metrics.update(nav_metrics)
 
             # Cumulative reward component breakdown
             for component, value in info.get("ep_reward_components", {}).items():
@@ -241,6 +349,8 @@ class IsaacMetricsCallback(BaseCallback):
                 metrics["perf/game_ticks_per_sec"] = tps
 
             wandb.log(metrics, step=self.num_timesteps)
+            if self.include_continuous_features:
+                self._reset_nav_stats(env_idx)
 
         # Forward PPO training metrics to wandb (logged by SB3 to its internal logger)
         if self.use_wandb and self.model is not None:
@@ -416,7 +526,10 @@ def train(config_path: str | None = None, resume: str | None = None, config=None
     callbacks = [
         checkpoint_callback,
         GamePauseCallback(env),
-        IsaacMetricsCallback(use_wandb=use_wandb),
+        IsaacMetricsCallback(
+            use_wandb=use_wandb,
+            include_continuous_features=config.env.include_continuous_position_features,
+        ),
     ]
 
     # Graceful SIGINT: save checkpoint before exiting
