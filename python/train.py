@@ -387,6 +387,32 @@ def train(config_path: str | None = None, resume: str | None = None, config=None
     if resume_path:
         model = PPO.load(resume_path, env=env)
         log.info("Resumed from %s", resume_path)
+        # Override hyperparameters from config (PPO.load restores saved values)
+        old_n_steps = model.n_steps
+        model.learning_rate = config.train.learning_rate
+        model.n_steps = config.train.n_steps
+        model.batch_size = config.train.batch_size
+        model.n_epochs = config.train.n_epochs
+        model.gamma = config.train.gamma
+        model.gae_lambda = config.train.gae_lambda
+        model.clip_range = config.train.clip_range
+        model.ent_coef = config.train.ent_coef
+        model.vf_coef = config.train.vf_coef
+        model.max_grad_norm = config.train.max_grad_norm
+        if config.train.target_kl is not None:
+            model.target_kl = config.train.target_kl
+        # Recreate rollout buffer if n_steps changed (buffer size is fixed at load)
+        if model.n_steps != old_n_steps:
+            log.info("n_steps changed %d -> %d, recreating rollout buffer", old_n_steps, model.n_steps)
+            model.rollout_buffer = model.rollout_buffer_class(
+                model.n_steps,
+                model.observation_space,
+                model.action_space,
+                model.device,
+                gamma=model.gamma,
+                gae_lambda=model.gae_lambda,
+                n_envs=model.n_envs,
+            )
     else:
         model = PPO(
             "MultiInputPolicy",
