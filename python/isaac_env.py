@@ -28,6 +28,12 @@ class IsaacEnv(gym.Env):
         super().__init__()
         self.config = config or Config()
         self.env_cfg = self.config.env
+        expected_features = 22 if self.env_cfg.include_continuous_position_features else 14
+        if self.env_cfg.player_features != expected_features:
+            raise ValueError(
+                "env.player_features is inconsistent with "
+                "env.include_continuous_position_features"
+            )
         self.reward_shaper = RewardShaper(self.config.reward)
 
         # Action space: MultiDiscrete([9, 5]) = 9 movement * 5 shooting
@@ -99,7 +105,7 @@ class IsaacEnv(gym.Env):
             )
 
         p = state.player
-        player = np.array([
+        player_features = [
             p.hp_red,
             p.hp_soul,
             p.hp_black,
@@ -114,15 +120,26 @@ class IsaacEnv(gym.Env):
             p.num_coins,
             1.0 if p.has_active_item else 0.0,
             p.active_charge,
-            p.pos_x,
-            p.pos_y,
-            p.nearest_pickup_dx,
-            p.nearest_pickup_dy,
-            p.nearest_enemy_dx,
-            p.nearest_enemy_dy,
-            p.nearest_projectile_dx,
-            p.nearest_projectile_dy,
-        ], dtype=np.float32)
+        ]
+
+        if self.env_cfg.include_continuous_position_features:
+            player_features.extend([
+                p.pos_x,
+                p.pos_y,
+                p.nearest_pickup_dx,
+                p.nearest_pickup_dy,
+                p.nearest_enemy_dx,
+                p.nearest_enemy_dy,
+                p.nearest_projectile_dx,
+                p.nearest_projectile_dy,
+            ])
+
+        player = np.array(player_features, dtype=np.float32)
+        if player.shape != (self.env_cfg.player_features,):
+            raise ValueError(
+                f"Player feature shape mismatch: got {player.shape[0]}, "
+                f"expected {self.env_cfg.player_features}"
+            )
 
         return {"grid": grid, "player": player}
 

@@ -11,12 +11,19 @@ class EnvConfig:
     grid_width: int = 13
     grid_height: int = 7
     grid_channels: int = 8
-    player_features: int = 22
+    include_continuous_position_features: bool = False
+    player_features: int = 14
     frame_skip: int = 1
     max_episode_steps: int = 3000
     action_timeout: float = 5.0
     n_workers: int = 1
     base_port: int = 9999
+
+    def __post_init__(self):
+        self.sync_player_features()
+
+    def sync_player_features(self):
+        self.player_features = 22 if self.include_continuous_position_features else 14
 
 
 @dataclass
@@ -129,12 +136,14 @@ def load_config(path: str | None = None) -> Config:
     """Load config from YAML file, falling back to defaults."""
     config = Config()
     if path is None:
+        config.env.sync_player_features()
         return config
 
     with open(path) as f:
         data = yaml.safe_load(f)
 
     if not data:
+        config.env.sync_player_features()
         return config
 
     for section_name, section_cls in [
@@ -149,5 +158,30 @@ def load_config(path: str | None = None) -> Config:
             for key, value in data[section_name].items():
                 if hasattr(section, key):
                     setattr(section, key, value)
+
+    env_data = data.get("env", {})
+    if isinstance(env_data, dict):
+        has_include_flag = "include_continuous_position_features" in env_data
+        has_player_features = "player_features" in env_data
+        if not has_include_flag and has_player_features:
+            pf = int(env_data["player_features"])
+            if pf == 14:
+                config.env.include_continuous_position_features = False
+            elif pf == 22:
+                config.env.include_continuous_position_features = True
+            else:
+                raise ValueError(
+                    f"Unsupported env.player_features={pf}. Expected 14 or 22."
+                )
+        elif has_include_flag and has_player_features:
+            expected = 22 if bool(env_data["include_continuous_position_features"]) else 14
+            pf = int(env_data["player_features"])
+            if pf != expected:
+                raise ValueError(
+                    "Config mismatch: env.player_features conflicts with "
+                    "env.include_continuous_position_features."
+                )
+
+    config.env.sync_player_features()
 
     return config
