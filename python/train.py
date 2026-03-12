@@ -12,6 +12,7 @@ except ImportError as exc:
         "Install dependencies from python/requirements.txt."
     ) from exc
 from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.utils import constant_fn
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 
@@ -395,7 +396,7 @@ def train(config_path: str | None = None, resume: str | None = None, config=None
         model.n_epochs = config.train.n_epochs
         model.gamma = config.train.gamma
         model.gae_lambda = config.train.gae_lambda
-        model.clip_range = config.train.clip_range
+        model.clip_range = constant_fn(config.train.clip_range)
         model.ent_coef = config.train.ent_coef
         model.vf_coef = config.train.vf_coef
         model.max_grad_norm = config.train.max_grad_norm
