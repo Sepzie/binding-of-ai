@@ -384,6 +384,7 @@ def train(config_path: str | None = None, resume: str | None = None, config=None
             gamma=config.train.gamma,
             gae_lambda=config.train.gae_lambda,
             clip_range=config.train.clip_range,
+            target_kl=config.train.target_kl,
             ent_coef=config.train.ent_coef,
             vf_coef=config.train.vf_coef,
             max_grad_norm=config.train.max_grad_norm,
