@@ -100,6 +100,28 @@ def evaluate(
 ):
     config = load_config(config_path)
     env = IsaacEnv(config)
+    env.configure_game({
+        "enemy_type": config.phase.enemy_type,
+        "enemy_variant": config.phase.enemy_variant,
+        "enemy_count": config.phase.enemy_count,
+        "enemy_collision_damage": config.phase.enemy_collision_damage,
+        "spawn_pickup_penny": config.phase.spawn_pickup_penny,
+        "pickup_random_position": config.phase.pickup_random_position,
+        "pickup_offset_x": config.phase.pickup_offset_x,
+        "pickup_offset_y": config.phase.pickup_offset_y,
+        "pickup_radius_min": config.phase.pickup_radius_min,
+        "pickup_radius_max": config.phase.pickup_radius_max,
+        "terminal_on_pickup": config.phase.terminal_on_pickup,
+        "terminal_pickup_count": config.phase.terminal_pickup_count,
+        "respawn_pickup": config.phase.respawn_pickup,
+        "spawn_enemies": config.phase.spawn_enemies,
+        "random_spawn_positions": config.phase.random_spawn_positions,
+        "spawn_radius_min": config.phase.spawn_radius_min,
+        "spawn_radius_max": config.phase.spawn_radius_max,
+        "disable_shooting": config.phase.disable_shooting,
+        "frame_skip": config.env.frame_skip,
+        "max_episode_ticks": config.env.max_episode_steps,
+    })
 
     model = PPO.load(model_path)
     print(f"Loaded model from {model_path}")
