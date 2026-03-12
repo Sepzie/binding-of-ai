@@ -142,10 +142,41 @@ class GamePauseCallback(BaseCallback):
 class IsaacMetricsCallback(BaseCallback):
     """Log Isaac-specific episode metrics to wandb and console."""
 
+    ROLLING_WINDOW = 50
+
     def __init__(self, use_wandb=False, verbose=0):
         super().__init__(verbose)
         self.use_wandb = use_wandb
         self._ep_count = 0
+        # Rolling window buffers
+        self._recent_rewards: list[float] = []
+        self._recent_lengths: list[int] = []
+        self._recent_wins: list[float] = []
+        self._recent_pickups: list[float] = []
+        self._last_train_log_step = 0
+
+    def _append_rolling(self, rewards, lengths, won, pickup):
+        w = self.ROLLING_WINDOW
+        self._recent_rewards.append(rewards)
+        self._recent_lengths.append(lengths)
+        self._recent_wins.append(won)
+        self._recent_pickups.append(pickup)
+        if len(self._recent_rewards) > w:
+            self._recent_rewards = self._recent_rewards[-w:]
+            self._recent_lengths = self._recent_lengths[-w:]
+            self._recent_wins = self._recent_wins[-w:]
+            self._recent_pickups = self._recent_pickups[-w:]
+
+    def _rolling_metrics(self) -> dict:
+        n = len(self._recent_rewards)
+        if n == 0:
+            return {}
+        return {
+            "rollout/win_rate": sum(self._recent_wins) / n,
+            "rollout/ep_rew_mean": sum(self._recent_rewards) / n,
+            "rollout/ep_len_mean": sum(self._recent_lengths) / n,
+            "rollout/pickup_rate": sum(self._recent_pickups) / n,
+        }
 
     def _on_step(self) -> bool:
         for info in self.locals.get("infos", []):
@@ -161,6 +192,10 @@ class IsaacMetricsCallback(BaseCallback):
             dmg = info.get("ep_damage_taken", 0)
             tps = info.get("game_ticks_per_sec", 0)
 
+            won = float(reason == "room_cleared")
+            pickup = float(info.get("ep_reward_components", {}).get("pickup_collected", 0) > 0)
+            self._append_rolling(ep_reward, ep_length, won, pickup)
+
             # Console summary (visible in main process)
             log = logging.getLogger("train")
             log.info(
@@ -175,12 +210,17 @@ class IsaacMetricsCallback(BaseCallback):
 
             # Gameplay metrics
             metrics = {
+                "episode/count": self._ep_count,
                 "episode/reward": ep_reward,
                 "episode/length": ep_length,
-                "episode/won": float(reason == "room_cleared"),
+                "episode/won": won,
                 "episode/kills": kills,
                 "episode/damage_taken": dmg,
+                "episode/pickup_collected": pickup,
             }
+
+            # Rolling averages
+            metrics.update(self._rolling_metrics())
 
             # Cumulative reward component breakdown
             for component, value in info.get("ep_reward_components", {}).items():
@@ -196,8 +236,45 @@ class IsaacMetricsCallback(BaseCallback):
             if tps > 0:
                 metrics["perf/game_ticks_per_sec"] = tps
 
-            wandb.log(metrics, step=self.num_timesteps)
+            wandb.log(metrics)
+
+        # Forward PPO training metrics to wandb (logged by SB3 to its internal logger)
+        if self.use_wandb and self.model is not None:
+            self._log_train_metrics()
+
         return True
+
+    def _log_train_metrics(self):
+        """Forward SB3's internal training stats to wandb once per rollout."""
+        logger = self.model.logger
+        if logger is None:
+            return
+        name_to_value = getattr(logger, "name_to_value", {})
+        if not name_to_value:
+            return
+        # Only log when SB3 updates (check if timestep advanced since last log)
+        step = self.num_timesteps
+        if step == self._last_train_log_step:
+            return
+        self._last_train_log_step = step
+
+        import wandb
+        train_metrics = {}
+        key_map = {
+            "train/entropy_loss": "train/entropy_loss",
+            "train/policy_gradient_loss": "train/policy_loss",
+            "train/value_loss": "train/value_loss",
+            "train/approx_kl": "train/approx_kl",
+            "train/clip_fraction": "train/clip_fraction",
+            "train/explained_variance": "train/explained_variance",
+            "train/learning_rate": "train/learning_rate",
+        }
+        for sb3_key, wandb_key in key_map.items():
+            if sb3_key in name_to_value:
+                train_metrics[wandb_key] = name_to_value[sb3_key]
+        if train_metrics:
+            train_metrics["global_step"] = step
+            wandb.log(train_metrics)
 
 
 def _build_game_settings(config):
@@ -234,7 +311,7 @@ def _make_env(config, port, game_settings):
     return _init
 
 
-def train(config_path: str | None = None, resume: str | None = None):
+def train(config_path: str | None = None, resume: str | None = None, config=None):
     log = logging.getLogger("train")
     logging.basicConfig(
         level=logging.DEBUG,
@@ -244,7 +321,8 @@ def train(config_path: str | None = None, resume: str | None = None):
     # Silence noisy third-party loggers
     for noisy in ("urllib3", "git", "git.cmd", "git.util", "asyncio", "wandb"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
-    config = load_config(config_path)
+    if config is None:
+        config = load_config(config_path)
     n_workers = config.env.n_workers
     base_port = config.env.base_port
     game_settings = _build_game_settings(config)
@@ -276,6 +354,13 @@ def train(config_path: str | None = None, resume: str | None = None):
             tags=config.wandb.tags,
             config=asdict(config),
         )
+        # Define x-axes: episode/rollout metrics use episode count, train/* uses training step
+        wandb.define_metric("episode/count")
+        wandb.define_metric("episode/*", step_metric="episode/count")
+        wandb.define_metric("rollout/*", step_metric="episode/count")
+        wandb.define_metric("reward/*", step_metric="episode/count")
+        wandb.define_metric("perf/*", step_metric="episode/count")
+        wandb.define_metric("train/*", step_metric="global_step")
 
     # Checkpoint manager — per-run folders, metadata, W&B artifacts
     ckpt_manager = CheckpointManager(
@@ -391,5 +476,17 @@ if __name__ == "__main__":
         default=None,
         help="Checkpoint path, run:<wandb_id>, or one of: latest, latest-any, latest-compatible",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Number of parallel workers (overrides config env.n_workers)",
+    )
     args = parser.parse_args()
-    train(args.config, args.resume)
+
+    config_path = args.config
+    config = load_config(config_path)
+    if args.workers is not None:
+        config.env.n_workers = args.workers
+
+    train(config_path, args.resume, config=config)
