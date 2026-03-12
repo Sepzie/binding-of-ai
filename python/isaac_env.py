@@ -6,6 +6,7 @@ import gymnasium as gym
 from gymnasium import spaces
 
 from config import Config
+from game_state import GameState
 from network_client import NetworkClient
 from reward import RewardShaper
 
@@ -86,30 +87,33 @@ class IsaacEnv(gym.Env):
         client.send({"command": "configure", "settings": self._game_settings})
         self._configured = True
 
-    def _state_to_obs(self, state: dict) -> dict:
-        grid = np.array(state["grid"], dtype=np.float32)
+    def _receive_state(self) -> GameState:
+        return GameState.from_dict(self._client.receive())
+
+    def _state_to_obs(self, state: GameState) -> dict:
+        grid = np.array(state.grid, dtype=np.float32)
         if grid.shape != (self.env_cfg.grid_channels, self.env_cfg.grid_height, self.env_cfg.grid_width):
             grid = np.zeros(
                 (self.env_cfg.grid_channels, self.env_cfg.grid_height, self.env_cfg.grid_width),
                 dtype=np.float32,
             )
 
-        p = state.get("player", {})
+        p = state.player
         player = np.array([
-            p.get("hp_red", 0),
-            p.get("hp_soul", 0),
-            p.get("hp_black", 0),
-            p.get("speed", 1.0),
-            p.get("damage", 3.5),
-            p.get("range", 6.5),
-            p.get("fire_rate", 10),
-            p.get("shot_speed", 1.0),
-            p.get("luck", 0),
-            p.get("num_bombs", 0),
-            p.get("num_keys", 0),
-            p.get("num_coins", 0),
-            1.0 if p.get("has_active_item") else 0.0,
-            p.get("active_charge", 0),
+            p.hp_red,
+            p.hp_soul,
+            p.hp_black,
+            p.speed,
+            p.damage,
+            p.range,
+            p.fire_rate,
+            p.shot_speed,
+            p.luck,
+            p.num_bombs,
+            p.num_keys,
+            p.num_coins,
+            1.0 if p.has_active_item else 0.0,
+            p.active_charge,
         ], dtype=np.float32)
 
         return {"grid": grid, "player": player}
@@ -119,9 +123,8 @@ class IsaacEnv(gym.Env):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
-                state = self._client.receive()
-                eid = state.get("episode_id", 0)
-                if eid > self._last_episode_id and not state.get("terminal", False):
+                state = self._receive_state()
+                if state.episode_id > self._last_episode_id and not state.terminal:
                     return state
             except (TimeoutError, OSError):
                 continue
@@ -175,15 +178,15 @@ class IsaacEnv(gym.Env):
 
         # Wait for observation with a new episode_id (Lua auto-restarts)
         state = self._wait_for_new_episode()
-        self._last_episode_id = state["episode_id"]
+        self._last_episode_id = state.episode_id
         self.last_state = state
 
         log.debug("EP %d started (game ep %d) | enemies=%d",
                   self._episode_num, self._last_episode_id,
-                  state.get("enemy_count", 0))
+                  state.enemy_count)
 
         obs = self._state_to_obs(state)
-        info = {"state": state, "reward_components": {}}
+        info = {"state": state, "state_raw": state.raw, "reward_components": {}}
         return obs, info
 
     def step(self, action):
@@ -207,14 +210,14 @@ class IsaacEnv(gym.Env):
 
         # Receive next state from Lua's stream (measure wait time)
         t_before = time.monotonic()
-        state = self._client.receive()
+        state = self._receive_state()
         t_after = time.monotonic()
         step_latency = t_after - t_before
         self._ep_step_latencies.append(step_latency)
         self._ep_receive_times.append(t_after)
 
         # Detect dropped frames via episode_tick gaps
-        episode_tick = state.get("episode_tick", 0)
+        episode_tick = state.episode_tick
         if self._last_episode_tick > 0 and episode_tick > 0:
             expected = self._last_episode_tick + 1
             if episode_tick > expected:
@@ -235,8 +238,8 @@ class IsaacEnv(gym.Env):
             self._ep_damage_taken += 1
 
         # Terminal from Lua's detection
-        terminated = state.get("terminal", False)
-        terminal_reason = state.get("terminal_reason")
+        terminated = state.terminal
+        terminal_reason = state.terminal_reason
 
         # Gymnasium convention: timeout is truncation, not termination
         truncated = terminal_reason == "timeout"
@@ -263,6 +266,7 @@ class IsaacEnv(gym.Env):
 
         info = {
             "state": state,
+            "state_raw": state.raw,
             "reward_components": self.reward_shaper.reward_components.copy(),
             "ep_reward_components": self._ep_reward_components.copy(),
             "ep_kills": self._ep_kills,

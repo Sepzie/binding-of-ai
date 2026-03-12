@@ -1,6 +1,7 @@
 import math
 
 from config import RewardConfig
+from game_state import GameState, PlayerState
 
 
 class RewardShaper:
@@ -8,7 +9,7 @@ class RewardShaper:
 
     def __init__(self, config: RewardConfig):
         self.config = config
-        self.prev_state = None
+        self.prev_state: GameState | None = None
         self.reward_components = {}
         self._nav_target: tuple[float, float] | None = None
         self._nav_reached = False
@@ -19,7 +20,7 @@ class RewardShaper:
         self._nav_target = None
         self._nav_reached = False
 
-    def compute(self, state: dict) -> float:
+    def compute(self, state: GameState) -> float:
         reward = 0.0
         self.reward_components = {}
 
@@ -32,7 +33,7 @@ class RewardShaper:
         self.reward_components["time"] = self.config.time_penalty
 
         # Reward staying alive while enemies are still present.
-        if state.get("enemy_count", 0) > 0 and not state.get("player_dead"):
+        if state.enemy_count > 0 and not state.player_dead:
             reward += self.config.survival_bonus
             self.reward_components["survival_bonus"] = self.config.survival_bonus
 
@@ -64,64 +65,60 @@ class RewardShaper:
             self.reward_components["nav_reach_bonus"] = nav_reach_bonus
 
         # Room cleared
-        if state.get("room_cleared") and not self.prev_state.get("room_cleared"):
+        if state.room_cleared and not self.prev_state.room_cleared:
             reward += self.config.room_cleared
             self.reward_components["room_cleared"] = self.config.room_cleared
 
         # Death
-        if state.get("player_dead"):
+        if state.player_dead:
             reward += self.config.death
             self.reward_components["death"] = self.config.death
 
         self.prev_state = state
         return reward
 
-    def _compute_damage_dealt(self, state: dict) -> float:
+    def _compute_damage_dealt(self, state: GameState) -> float:
         prev_enemies = {
-            (e["type"], e["variant"], e["position"][0], e["position"][1]): e["hp"]
-            for e in self.prev_state.get("enemies", [])
+            (e.type, e.variant, e.position[0], e.position[1]): e.hp
+            for e in self.prev_state.enemies
         }
         reward = 0.0
-        for enemy in state.get("enemies", []):
-            key = (enemy["type"], enemy["variant"], enemy["position"][0], enemy["position"][1])
+        for enemy in state.enemies:
+            key = (enemy.type, enemy.variant, enemy.position[0], enemy.position[1])
             # Try to match by proximity since positions change
             best_match_hp = None
             for pkey, php in prev_enemies.items():
-                if pkey[0] == enemy["type"] and pkey[1] == enemy["variant"]:
+                if pkey[0] == enemy.type and pkey[1] == enemy.variant:
                     if best_match_hp is None or php > best_match_hp:
                         best_match_hp = php
-            if best_match_hp is not None and enemy["hp"] < best_match_hp:
-                damage = best_match_hp - enemy["hp"]
+            if best_match_hp is not None and enemy.hp < best_match_hp:
+                damage = best_match_hp - enemy.hp
                 reward += damage * self.config.damage_dealt
         return reward
 
-    def _compute_kills(self, state: dict) -> float:
-        prev_count = self.prev_state.get("enemy_count", 0)
-        curr_count = state.get("enemy_count", 0)
+    def _compute_kills(self, state: GameState) -> float:
+        prev_count = self.prev_state.enemy_count
+        curr_count = state.enemy_count
         kills = max(0, prev_count - curr_count)
         return kills * self.config.enemy_killed
 
-    def _compute_damage_taken(self, state: dict) -> float:
-        prev_hp = self._total_hp(self.prev_state.get("player", {}))
-        curr_hp = self._total_hp(state.get("player", {}))
+    def _compute_damage_taken(self, state: GameState) -> float:
+        prev_hp = self._total_hp(self.prev_state.player)
+        curr_hp = self._total_hp(state.player)
         if curr_hp < prev_hp:
             return self.config.damage_taken
         return 0.0
 
-    def _compute_pickups(self, state: dict) -> float:
-        prev_coins = self.prev_state.get("player", {}).get("num_coins", 0)
-        curr_coins = state.get("player", {}).get("num_coins", 0)
+    def _compute_pickups(self, state: GameState) -> float:
+        prev_coins = self.prev_state.player.num_coins
+        curr_coins = state.player.num_coins
         collected = max(0, curr_coins - prev_coins)
         return collected * self.config.pickup_collected
 
-    def _total_hp(self, player: dict) -> float:
-        return (
-            player.get("hp_red", 0)
-            + player.get("hp_soul", 0)
-            + player.get("hp_black", 0)
-        )
+    def _total_hp(self, player: PlayerState) -> float:
+        return player.total_hp
 
-    def _compute_nav_reward(self, state: dict) -> tuple[float, float, float]:
+    def _compute_nav_reward(self, state: GameState) -> tuple[float, float, float]:
         nav_enabled = (
             self.config.nav_progress_scale != 0.0
             or self.config.nav_reach_bonus != 0.0
@@ -154,7 +151,7 @@ class RewardShaper:
 
         return nav_progress_reward + nav_reach_bonus, nav_progress_reward, nav_reach_bonus
 
-    def _resolve_nav_target(self, state: dict) -> tuple[float, float] | None:
+    def _resolve_nav_target(self, state: GameState) -> tuple[float, float] | None:
         if self.config.nav_target_x is not None and self.config.nav_target_y is not None:
             return float(self.config.nav_target_x), float(self.config.nav_target_y)
 
@@ -168,10 +165,7 @@ class RewardShaper:
         )
 
     @staticmethod
-    def _player_position(state: dict | None) -> tuple[float, float] | None:
+    def _player_position(state: GameState | None) -> tuple[float, float] | None:
         if not state:
             return None
-        pos = state.get("player", {}).get("position")
-        if not isinstance(pos, (list, tuple)) or len(pos) != 2:
-            return None
-        return float(pos[0]), float(pos[1])
+        return state.player.position

@@ -280,3 +280,79 @@ class CheckpointManager:
             except Exception:
                 continue
         return None
+
+    @staticmethod
+    def find_run_dir(
+        base_dir: Path,
+        model: str,
+    ) -> Path | None:
+        """Resolve a run-id suffix to a run directory.
+
+        Returns None when `model` already points to a file path.
+        """
+        candidate = Path(model).expanduser()
+        if candidate.is_file() or candidate.with_suffix(".zip").is_file():
+            return None
+
+        matches = sorted(base_dir.glob(f"*_{model}"))
+        if not matches:
+            raise FileNotFoundError(
+                f"No checkpoint directory found matching run ID '{model}' in {base_dir}"
+            )
+        if len(matches) > 1:
+            log.warning(
+                "Multiple run dirs match '%s'; using latest: %s",
+                model,
+                matches[-1].name,
+            )
+        return matches[-1]
+
+    @staticmethod
+    def resolve_model_path(
+        base_dir: Path,
+        model: str,
+    ) -> str:
+        """Resolve model argument to a concrete checkpoint .zip path."""
+        candidate = Path(model).expanduser()
+        if candidate.is_file():
+            return str(candidate)
+        if candidate.with_suffix(".zip").is_file():
+            return str(candidate.with_suffix(".zip"))
+
+        run_dir = CheckpointManager.find_run_dir(base_dir, model)
+        if run_dir is None:
+            raise FileNotFoundError(f"Model not found: {model}")
+
+        final = run_dir / "final_model.zip"
+        if final.is_file():
+            return str(final)
+
+        zips = sorted(run_dir.glob("*.zip"))
+        if not zips:
+            raise FileNotFoundError(f"No .zip checkpoints found in {run_dir}")
+        return str(zips[-1])
+
+    @staticmethod
+    def read_model_meta(
+        base_dir: Path,
+        model: str,
+    ) -> dict:
+        """Read the first valid .meta.json associated with a model argument."""
+        model_path = Path(model).expanduser()
+        zipped_model_path = model_path.with_suffix(".zip")
+        run_dir = (
+            model_path.parent
+            if model_path.is_file()
+            else zipped_model_path.parent
+            if zipped_model_path.is_file()
+            else CheckpointManager.find_run_dir(base_dir, model)
+        )
+        if run_dir is None:
+            return {}
+
+        for meta_file in sorted(run_dir.glob("*.meta.json")):
+            try:
+                return json.loads(meta_file.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+        return {}

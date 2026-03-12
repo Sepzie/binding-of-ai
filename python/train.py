@@ -23,8 +23,12 @@ from network import IsaacFeatureExtractor
 from utils import (
     get_checkpoint_dir,
     get_log_dir,
-    validate_ppo_checkpoint,
 )
+
+
+def validate_ppo_checkpoint(checkpoint_path: Path, env) -> None:
+    """Raise if a checkpoint cannot be loaded for the provided environment."""
+    PPO.load(str(checkpoint_path), env=env)
 
 
 def resolve_resume_path(
@@ -185,10 +189,10 @@ class IsaacMetricsCallback(BaseCallback):
                 continue
             self._ep_count += 1
 
-            state = info.get("state", {})
+            state = info.get("state")
             ep_reward = info["episode"]["r"]
             ep_length = info["episode"]["l"]
-            reason = state.get("terminal_reason", "unknown")
+            reason = state.terminal_reason if state else "unknown"
             kills = info.get("ep_kills", 0)
             dmg = info.get("ep_damage_taken", 0)
             tps = info.get("game_ticks_per_sec", 0)

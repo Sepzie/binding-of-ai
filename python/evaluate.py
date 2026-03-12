@@ -1,5 +1,4 @@
 import argparse
-import json
 from pathlib import Path
 
 import numpy as np
@@ -13,67 +12,10 @@ except ImportError as exc:
         "Install dependencies from python/requirements.txt."
     ) from exc
 
+from checkpoint_manager import CheckpointManager
 from config import load_config
 from isaac_env import IsaacEnv
-
 CHECKPOINT_ROOT = Path(__file__).resolve().parent.parent / "checkpoints"
-
-
-def _find_run_dir(model: str) -> Path | None:
-    """If model looks like a run ID suffix, return the matching checkpoint dir."""
-    candidate = Path(model)
-    if candidate.is_file() or candidate.with_suffix(".zip").is_file():
-        return None
-
-    matches = sorted(CHECKPOINT_ROOT.glob(f"*_{model}"))
-    if not matches:
-        raise FileNotFoundError(
-            f"No checkpoint directory found matching run ID '{model}' "
-            f"in {CHECKPOINT_ROOT}"
-        )
-    if len(matches) > 1:
-        print(f"Warning: multiple matches for '{model}', using latest: {matches[-1].name}")
-    return matches[-1]
-
-
-def resolve_model_path(model: str) -> str:
-    """Resolve a model argument to a full path.
-
-    Accepts:
-      - A full file path (returned as-is)
-      - A W&B run ID suffix (e.g. 'ep7xefgq') — finds the latest checkpoint
-        in the matching checkpoints/<...>_<run_id>/ directory
-    """
-    candidate = Path(model)
-    if candidate.is_file():
-        return model
-    if candidate.with_suffix(".zip").is_file():
-        return str(candidate.with_suffix(".zip"))
-
-    run_dir = _find_run_dir(model)
-    if run_dir is None:
-        raise FileNotFoundError(f"Model not found: {model}")
-
-    final = run_dir / "final_model.zip"
-    if final.is_file():
-        return str(final)
-    zips = sorted(run_dir.glob("*.zip"))
-    if not zips:
-        raise FileNotFoundError(f"No .zip checkpoints found in {run_dir}")
-    return str(zips[-1])
-
-
-def _read_meta(model: str) -> dict:
-    """Read the first valid meta.json from the run directory."""
-    run_dir = _find_run_dir(model) if not Path(model).is_file() else Path(model).parent
-    if run_dir is None:
-        return {}
-    for meta_file in sorted(run_dir.glob("*.meta.json")):
-        try:
-            return json.loads(meta_file.read_text())
-        except (json.JSONDecodeError, OSError):
-            continue
-    return {}
 
 
 def resolve_config_path(model: str, explicit_config: str | None) -> str | None:
@@ -81,7 +23,7 @@ def resolve_config_path(model: str, explicit_config: str | None) -> str | None:
     if explicit_config is not None:
         return explicit_config
 
-    meta = _read_meta(model)
+    meta = CheckpointManager.read_model_meta(CHECKPOINT_ROOT, model)
     config_path = meta.get("config_path")
     if config_path:
         resolved = CHECKPOINT_ROOT.parent / config_path
@@ -149,8 +91,8 @@ def evaluate(
         episode_rewards.append(total_reward)
         episode_lengths.append(steps)
 
-        state = info.get("state", {})
-        cleared = state.get("room_cleared", False)
+        state = info.get("state")
+        cleared = bool(state.room_cleared) if state is not None else False
         if cleared:
             wins += 1
         pickup = info.get("ep_reward_components", {}).get("pickup_collected", 0) > 0
@@ -202,8 +144,8 @@ if __name__ == "__main__":
     parser.add_argument("--episodes", type=int, default=20, help="Number of evaluation episodes")
     parser.add_argument("--no-wandb", action="store_true", help="Disable W&B logging")
     args = parser.parse_args()
-    model_path = resolve_model_path(args.model)
+    model_path = CheckpointManager.resolve_model_path(CHECKPOINT_ROOT, args.model)
     config_path = resolve_config_path(args.model, args.config)
-    meta = _read_meta(args.model)
+    meta = CheckpointManager.read_model_meta(CHECKPOINT_ROOT, args.model)
     print(f"Resolved model: {model_path}")
     evaluate(model_path, config_path, args.episodes, meta=meta, use_wandb=not args.no_wandb)
