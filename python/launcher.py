@@ -15,10 +15,12 @@ import argparse
 import ctypes
 import ctypes.wintypes
 import logging
+from pathlib import Path
 import socket
 import subprocess
 import sys
 import time
+from typing import Optional
 
 from PIL import Image
 
@@ -29,6 +31,22 @@ STEAM_EXE = r"C:\Program Files (x86)\Steam\steam.exe"
 ISAAC_APP_ID = "250900"
 SANDBOX_PREFIX = "IsaacWorker"
 DEFAULT_BASE_PORT = 9999
+CHEAT_ENGINE_DIR = r"C:\Program Files\Cheat Engine"
+CHEAT_ENGINE_EXE_CANDIDATES = [
+    "cheatengine-x86_64.exe",
+    "cheatengine-x86_64-SSE4-AVX2.exe",
+    "Cheat Engine.exe",
+    "cheatengine-i386.exe",
+]
+CHEAT_ENGINE_PROCESS_CANDIDATES = [
+    "cheatengine-x86_64.exe",
+    "cheatengine-x86_64-sse4-avx2.exe",
+    "cheat engine.exe",
+    "cheatengine-i386.exe",
+]
+CHEAT_ENGINE_AUTORUN_FILE = Path(
+    CHEAT_ENGINE_DIR, "autorun", "custom", "isaac_speedhack_autorun.lua"
+)
 
 # Windows API
 user32 = ctypes.windll.user32
@@ -228,6 +246,105 @@ def launch_worker(worker_id: int, port: int) -> subprocess.Popen:
     return proc
 
 
+def _tasklist_running(image_name: str) -> bool:
+    """Check whether an image is running using Windows tasklist."""
+    cmd = ["tasklist", "/FI", f"IMAGENAME eq {image_name}", "/FO", "CSV", "/NH"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        return False
+    output = (result.stdout or "").lower()
+    if "no tasks are running" in output:
+        return False
+    return image_name.lower() in output
+
+
+def is_cheat_engine_running() -> bool:
+    """Return True if any known Cheat Engine executable is already running."""
+    return any(_tasklist_running(name) for name in CHEAT_ENGINE_PROCESS_CANDIDATES)
+
+
+def find_cheat_engine_exe() -> Optional[Path]:
+    """Return an installed Cheat Engine executable path, or None if missing."""
+    for exe_name in CHEAT_ENGINE_EXE_CANDIDATES:
+        exe_path = Path(CHEAT_ENGINE_DIR, exe_name)
+        if exe_path.exists():
+            return exe_path
+    return None
+
+
+def reinstall_ce_autorun(repo_root: Path, speed: float, scan_ms: int) -> bool:
+    """Reinstall CE autorun script so watcher settings are refreshed."""
+    installer = repo_root / "scripts" / "install_ce_speedhack_watch.ps1"
+    if not installer.exists():
+        log.error("Autorun installer not found: %s", installer)
+        return False
+
+    cmd = [
+        "powershell",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(installer),
+        "-Action",
+        "Install",
+        "-Speed",
+        str(speed),
+        "-TargetProcess",
+        "isaac-ng.exe",
+        "-ScanIntervalMs",
+        str(scan_ms),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        log.error("Failed to install CE autorun script.")
+        if result.stdout:
+            log.error("Installer stdout: %s", result.stdout.strip())
+        if result.stderr:
+            log.error("Installer stderr: %s", result.stderr.strip())
+        return False
+    if result.stdout:
+        log.info("CE autorun install: %s", result.stdout.strip())
+    return True
+
+
+def ensure_cheat_engine_running(
+    repo_root: Path,
+    reinstall_autorun: bool,
+    ce_speed: float,
+    ce_scan_ms: int,
+    ce_startup_delay: float,
+) -> bool:
+    """Ensure CE is running before workers launch, optionally reinstalling autorun."""
+    if reinstall_autorun:
+        if not reinstall_ce_autorun(repo_root, ce_speed, ce_scan_ms):
+            return False
+    elif not CHEAT_ENGINE_AUTORUN_FILE.exists():
+        log.warning(
+            "CE autorun script not found at %s. "
+            "Use --ce-reinstall-autorun once to install it.",
+            CHEAT_ENGINE_AUTORUN_FILE,
+        )
+
+    if is_cheat_engine_running():
+        log.info("Cheat Engine already running.")
+        return True
+
+    ce_exe = find_cheat_engine_exe()
+    if ce_exe is None:
+        log.error(
+            "Cheat Engine executable not found in %s. "
+            "Install CE or launch it manually before running workers.",
+            CHEAT_ENGINE_DIR,
+        )
+        return False
+
+    log.info("Launching Cheat Engine: %s", ce_exe)
+    subprocess.Popen([str(ce_exe)])
+    if ce_startup_delay > 0:
+        time.sleep(ce_startup_delay)
+    return True
+
+
 def wait_for_port(host: str, port: int, timeout: float = 120.0) -> bool:
     """Wait until a TCP port is accepting connections."""
     deadline = time.monotonic() + timeout
@@ -297,11 +414,52 @@ def main():
     parser.add_argument("--timeout", type=float, default=120.0, help="Connection timeout per worker")
     parser.add_argument("--no-auto-start", action="store_true",
                         help="Skip auto-start (manually start runs in each window)")
+    parser.add_argument(
+        "--no-ce",
+        action="store_true",
+        help="Skip ensuring Cheat Engine is running before worker launch",
+    )
+    parser.add_argument(
+        "--ce-reinstall-autorun",
+        action="store_true",
+        help="Reinstall CE speedhack autorun script before launching workers",
+    )
+    parser.add_argument(
+        "--ce-speed",
+        type=float,
+        default=10.0,
+        help="Speed used when --ce-reinstall-autorun is set",
+    )
+    parser.add_argument(
+        "--ce-scan-ms",
+        type=int,
+        default=1000,
+        help="Scan interval used when --ce-reinstall-autorun is set",
+    )
+    parser.add_argument(
+        "--ce-startup-delay",
+        type=float,
+        default=2.0,
+        help="Delay after launching CE to let autorun watcher initialize",
+    )
     args = parser.parse_args()
 
     if args.terminate:
         terminate_all(args.workers)
         return
+
+    if not args.no_ce:
+        repo_root = Path(__file__).resolve().parents[1]
+        if not ensure_cheat_engine_running(
+            repo_root=repo_root,
+            reinstall_autorun=args.ce_reinstall_autorun,
+            ce_speed=args.ce_speed,
+            ce_scan_ms=args.ce_scan_ms,
+            ce_startup_delay=args.ce_startup_delay,
+        ):
+            sys.exit(1)
+    else:
+        log.info("Skipping Cheat Engine pre-launch checks (--no-ce).")
 
     # Launch workers
     procs = []
