@@ -68,6 +68,27 @@ function StateSerializer.serialize(game)
     local level = game:GetLevel()
     local player = Isaac.GetPlayer(0)
 
+    local roomTopLeft = room:GetTopLeftPos()
+    local roomBottomRight = room:GetBottomRightPos()
+    local roomWidth = math.max(1.0, roomBottomRight.X - roomTopLeft.X)
+    local roomHeight = math.max(1.0, roomBottomRight.Y - roomTopLeft.Y)
+
+    local function normalizePos(pos)
+        local x = (pos.X - roomTopLeft.X) / roomWidth
+        local y = (pos.Y - roomTopLeft.Y) / roomHeight
+        x = math.max(0.0, math.min(1.0, x))
+        y = math.max(0.0, math.min(1.0, y))
+        return x, y
+    end
+
+    local function normalizeDelta(dx, dy)
+        local x = dx / roomWidth
+        local y = dy / roomHeight
+        x = math.max(-1.0, math.min(1.0, x))
+        y = math.max(-1.0, math.min(1.0, y))
+        return x, y
+    end
+
     local grid = createGrid()
 
     -- Encode grid entities (walls, obstacles, pits)
@@ -99,10 +120,22 @@ function StateSerializer.serialize(game)
 
     -- Enemies, projectiles, pickups
     local enemies = {}
+    local nearestPickupDist = nil
+    local nearestPickupDx = 0.0
+    local nearestPickupDy = 0.0
+    local nearestEnemyDist = nil
+    local nearestEnemyDx = 0.0
+    local nearestEnemyDy = 0.0
+    local nearestProjectileDist = nil
+    local nearestProjectileDx = 0.0
+    local nearestProjectileDy = 0.0
     local entities = Isaac.GetRoomEntities()
     for i = 1, #entities do
         local ent = entities[i]
         local ex, ey = worldToGrid(room, ent.Position)
+        local dx = ent.Position.X - player.Position.X
+        local dy = ent.Position.Y - player.Position.Y
+        local distSq = dx * dx + dy * dy
 
         if ent:IsActiveEnemy(false) and not ent:IsDead() then
             -- Enemy channel: normalized HP (0-1)
@@ -123,16 +156,36 @@ function StateSerializer.serialize(game)
                 max_hp = maxHp,
                 position = {ent.Position.X, ent.Position.Y}
             })
+            if nearestEnemyDist == nil or distSq < nearestEnemyDist then
+                nearestEnemyDist = distSq
+                nearestEnemyDx = dx
+                nearestEnemyDy = dy
+            end
 
         elseif ent.Type == 9 then
             -- Enemy projectile
             grid[StateSerializer.CHANNEL_PROJECTILES][ey][ex] = 1
+            if nearestProjectileDist == nil or distSq < nearestProjectileDist then
+                nearestProjectileDist = distSq
+                nearestProjectileDx = dx
+                nearestProjectileDy = dy
+            end
 
         elseif ent.Type == 5 and ent.Variant ~= 100 then
             -- Pickup (not pedestal items)
             grid[StateSerializer.CHANNEL_PICKUPS][ey][ex] = 1
+            if nearestPickupDist == nil or distSq < nearestPickupDist then
+                nearestPickupDist = distSq
+                nearestPickupDx = dx
+                nearestPickupDy = dy
+            end
         end
     end
+
+    local playerPosX, playerPosY = normalizePos(player.Position)
+    local nearestPickupDxNorm, nearestPickupDyNorm = normalizeDelta(nearestPickupDx, nearestPickupDy)
+    local nearestEnemyDxNorm, nearestEnemyDyNorm = normalizeDelta(nearestEnemyDx, nearestEnemyDy)
+    local nearestProjectileDxNorm, nearestProjectileDyNorm = normalizeDelta(nearestProjectileDx, nearestProjectileDy)
 
     -- Doors
     for slot = 0, 7 do
@@ -168,6 +221,14 @@ function StateSerializer.serialize(game)
         num_coins = player:GetNumCoins(),
         has_active_item = player:GetActiveItem() ~= 0,
         active_charge = player:GetActiveCharge(),
+        pos_x = playerPosX,
+        pos_y = playerPosY,
+        nearest_pickup_dx = nearestPickupDxNorm,
+        nearest_pickup_dy = nearestPickupDyNorm,
+        nearest_enemy_dx = nearestEnemyDxNorm,
+        nearest_enemy_dy = nearestEnemyDyNorm,
+        nearest_projectile_dx = nearestProjectileDxNorm,
+        nearest_projectile_dy = nearestProjectileDyNorm,
         position = {player.Position.X, player.Position.Y}
     }
 

@@ -37,6 +37,14 @@ class PlayerState:
     num_coins: int = 0
     has_active_item: bool = False
     active_charge: float = 0.0
+    pos_x: float = 0.5
+    pos_y: float = 0.5
+    nearest_pickup_dx: float = 0.0
+    nearest_pickup_dy: float = 0.0
+    nearest_enemy_dx: float = 0.0
+    nearest_enemy_dy: float = 0.0
+    nearest_projectile_dx: float = 0.0
+    nearest_projectile_dy: float = 0.0
     position: tuple[float, float] | None = None
 
     @staticmethod
@@ -62,6 +70,14 @@ class PlayerState:
             num_coins=int(data.get("num_coins", 0)),
             has_active_item=bool(data.get("has_active_item", False)),
             active_charge=float(data.get("active_charge", 0.0)),
+            pos_x=float(data.get("pos_x", 0.5)),
+            pos_y=float(data.get("pos_y", 0.5)),
+            nearest_pickup_dx=float(data.get("nearest_pickup_dx", 0.0)),
+            nearest_pickup_dy=float(data.get("nearest_pickup_dy", 0.0)),
+            nearest_enemy_dx=float(data.get("nearest_enemy_dx", 0.0)),
+            nearest_enemy_dy=float(data.get("nearest_enemy_dy", 0.0)),
+            nearest_projectile_dx=float(data.get("nearest_projectile_dx", 0.0)),
+            nearest_projectile_dy=float(data.get("nearest_projectile_dy", 0.0)),
             position=position,
         )
 
