@@ -18,9 +18,10 @@ reward:
 
 train:
   total_timesteps: 500000
-  learning_rate: 0.0003
-  n_steps: 1024
-  batch_size: 64
+  learning_rate: 0.0001
+  n_steps: 2048
+  batch_size: 256
+  n_epochs: 4
   ent_coef: 0.01
 
 phase:
@@ -46,5 +47,5 @@ phase:
 wandb:
   enabled: true
   project: "binding-of-ai"
-  run_name: "phase0c-multicoin"
-  tags: ["phase0c", "multicoin", "respawn-pickup", "fly-lockroom", "frameskip-3"]
+  run_name: "phase0c-multicoin-tuned-ppo"
+  tags: ["phase0c", "multicoin", "respawn-pickup", "fly-lockroom", "frameskip-3", "tuned-ppo"]
