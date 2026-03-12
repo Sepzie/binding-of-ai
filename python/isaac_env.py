@@ -1,4 +1,3 @@
-import json
 import logging
 import socket
 import time
@@ -7,6 +6,7 @@ import gymnasium as gym
 from gymnasium import spaces
 
 from config import Config
+from network_client import NetworkClient
 from reward import RewardShaper
 
 log = logging.getLogger("IsaacEnv")
@@ -48,8 +48,12 @@ class IsaacEnv(gym.Env):
             ),
         })
 
-        self.sock = None
-        self.sock_file = None
+        self._client = NetworkClient(
+            host=self.env_cfg.host,
+            port=self.env_cfg.port,
+            timeout=self.env_cfg.action_timeout,
+            on_connect=self._on_client_connect,
+        )
         self.step_count = 0
         self.last_state = None
         self._episode_num = 0
@@ -77,88 +81,10 @@ class IsaacEnv(gym.Env):
         self._ep_step_latencies = []
         self._ep_receive_times = []  # wall-clock time of each received state
 
-    # Reconnect settings
-    MAX_RECONNECT_RETRIES = 5
-    RECONNECT_BACKOFF_BASE = 1.0  # seconds, doubles each retry
-
-    def _connect(self):
-        if self.sock is not None:
-            return
-        last_err = None
-        for attempt in range(self.MAX_RECONNECT_RETRIES + 1):
-            try:
-                self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.sock.settimeout(self.env_cfg.action_timeout)
-                self.sock.connect((self.env_cfg.host, self.env_cfg.port))
-                self.sock_file = self.sock.makefile("r")
-                log.info("Connected to %s:%d", self.env_cfg.host, self.env_cfg.port)
-                return
-            except (ConnectionError, OSError) as e:
-                last_err = e
-                self._disconnect()
-                if attempt < self.MAX_RECONNECT_RETRIES:
-                    delay = self.RECONNECT_BACKOFF_BASE * (2 ** attempt)
-                    log.warning(
-                        "Connect failed to %s:%d (%s), retry %d/%d in %.1fs...",
-                        self.env_cfg.host, self.env_cfg.port, e,
-                        attempt + 1, self.MAX_RECONNECT_RETRIES, delay,
-                    )
-                    time.sleep(delay)
-        raise ConnectionError(
-            f"Failed to connect to {self.env_cfg.host}:{self.env_cfg.port} "
-            f"after {self.MAX_RECONNECT_RETRIES + 1} attempts: {last_err}"
-        )
-
-    def _disconnect(self):
-        """Clean up socket state."""
-        if self.sock_file:
-            try:
-                self.sock_file.close()
-            except OSError:
-                pass
-        if self.sock:
-            try:
-                self.sock.close()
-            except OSError:
-                pass
-        self.sock = None
-        self.sock_file = None
-
-    def _reconnect(self):
-        """Disconnect and reconnect (retry logic is in _connect)."""
-        self._disconnect()
-        self._connect()
-
-    def _send(self, data: dict):
-        msg = json.dumps(data) + "\n"
-        try:
-            self.sock.sendall(msg.encode())
-        except (ConnectionError, OSError) as e:
-            # Don't reconnect on timeouts — let callers handle those
-            if isinstance(e, (TimeoutError, socket.timeout)):
-                raise
-            log.warning("Send failed (%s), attempting reconnect", e)
-            self._reconnect()
-            # Re-send after reconnect
-            self.sock.sendall(msg.encode())
-
-    def _receive(self) -> dict:
-        try:
-            line = self.sock_file.readline()
-            if not line:
-                raise ConnectionError("Connection closed by game")
-            return json.loads(line)
-        except (ConnectionError, OSError) as e:
-            # Don't reconnect on timeouts — let callers handle those
-            if isinstance(e, (TimeoutError, socket.timeout)):
-                raise
-            log.warning("Receive failed (%s), attempting reconnect", e)
-            self._reconnect()
-            # After reconnect, read the next available state
-            line = self.sock_file.readline()
-            if not line:
-                raise ConnectionError("Connection closed by game after reconnect")
-            return json.loads(line)
+    def _on_client_connect(self, client: NetworkClient) -> None:
+        """Replay current game settings after every connect/reconnect."""
+        client.send({"command": "configure", "settings": self._game_settings})
+        self._configured = True
 
     def _state_to_obs(self, state: dict) -> dict:
         grid = np.array(state["grid"], dtype=np.float32)
@@ -193,7 +119,7 @@ class IsaacEnv(gym.Env):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
-                state = self._receive()
+                state = self._client.receive()
                 eid = state.get("episode_id", 0)
                 if eid > self._last_episode_id and not state.get("terminal", False):
                     return state
@@ -205,11 +131,7 @@ class IsaacEnv(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
-        self._connect()
-
-        if not self._configured:
-            self.configure_game(self._game_settings)
-            self._configured = True
+        self._client.connect()
 
         # Log previous episode summary
         if self._episode_num > 0:
@@ -247,8 +169,8 @@ class IsaacEnv(gym.Env):
         if self._last_episode_id == 0:
             # First episode in this Python process: force game back to active play
             # and request a fresh episode so stale paused state cannot leak across runs.
-            self._send({"command": "resume"})
-            self._send({"command": "reset"})
+            self._client.send({"command": "resume"})
+            self._client.send({"command": "reset"})
             log.debug("Initial reset sent, waiting for first episode...")
 
         # Wait for observation with a new episode_id (Lua auto-restarts)
@@ -278,14 +200,14 @@ class IsaacEnv(gym.Env):
         shoot_action = int(action[1])
 
         # Send action (fire-and-forget, Lua latches it)
-        self._send({
+        self._client.send({
             "command": "action",
             "action": {"move": move_action, "shoot": shoot_action},
         })
 
         # Receive next state from Lua's stream (measure wait time)
         t_before = time.monotonic()
-        state = self._receive()
+        state = self._client.receive()
         t_after = time.monotonic()
         step_latency = t_after - t_before
         self._ep_step_latencies.append(step_latency)
@@ -369,36 +291,27 @@ class IsaacEnv(gym.Env):
 
     def pause_game(self):
         """Pause the game (used between rollout collection and PPO update)."""
-        self._send({"command": "pause"})
+        self._client.send({"command": "pause"})
 
     def resume_and_flush(self):
         """Resume the game and flush stale TCP data from the buffer."""
-        self._send({"command": "resume"})
-        flushed_bytes = 0
-        self.sock.setblocking(False)
-        try:
-            while True:
-                data = self.sock.recv(65536)
-                if not data:
-                    break
-                flushed_bytes += len(data)
-        except (BlockingIOError, OSError):
-            pass
-        self.sock.setblocking(True)
-        self.sock.settimeout(self.env_cfg.action_timeout)
-        self.sock_file = self.sock.makefile("r")
-        return flushed_bytes
+        self._client.send({"command": "resume"})
+        return self._client.flush()
 
     def configure_game(self, settings: dict):
         """Send game configuration to the Lua mod."""
-        self._connect()
-        self._send({"command": "configure", "settings": settings})
+        self._game_settings = settings
+        was_connected = self._client.sock is not None
+        self._client.connect()
+        if was_connected:
+            self._client.send({"command": "configure", "settings": settings})
+        self._configured = True
 
     def close(self):
         # Best-effort cleanup: don't leave the game paused when training exits.
-        if self.sock is not None:
+        if self._client.sock is not None:
             try:
-                self._send({"command": "resume"})
+                self._client.send({"command": "resume"})
             except (ConnectionError, OSError, TimeoutError, socket.timeout):
                 pass
-        self._disconnect()
+        self._client.disconnect()
