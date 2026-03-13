@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 import threading
 import time
 
@@ -9,7 +8,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.styles import Style
-from prompt_toolkit.widgets import Frame, TextArea
+from prompt_toolkit.widgets import Frame
 
 from .controller import LauncherController
 from .models import WorkerState
@@ -24,16 +23,14 @@ class LauncherTUI:
         self.active_action = "idle"
         self._stop = threading.Event()
         self._action_lock = threading.Lock()
-        self.log_area = TextArea(
-            text=self.controller.render_logs(),
-            read_only=True,
-            focusable=False,
-            scrollbar=True,
-            wrap_lines=False,
-        )
         self.header = Window(FormattedTextControl(self._render_header), height=2)
         self.table = Window(FormattedTextControl(self._render_table), always_hide_cursor=True)
         self.details = Window(FormattedTextControl(self._render_details), always_hide_cursor=True)
+        self.log_area = Window(
+            FormattedTextControl(self._render_logs),
+            always_hide_cursor=True,
+            wrap_lines=False,
+        )
         self.footer = Window(FormattedTextControl(self._render_footer), height=2)
         root = HSplit(
             [
@@ -84,11 +81,13 @@ class LauncherTUI:
         def _move_up(_event) -> None:
             if self.states:
                 self.cursor = max(0, self.cursor - 1)
+                self.app.invalidate()
 
         @kb.add("down")
         def _move_down(_event) -> None:
             if self.states:
                 self.cursor = min(len(self.states) - 1, self.cursor + 1)
+                self.app.invalidate()
 
         @kb.add(" ")
         @kb.add("enter")
@@ -100,10 +99,12 @@ class LauncherTUI:
                 self.selected.remove(state.worker_id)
             else:
                 self.selected.add(state.worker_id)
+            self.app.invalidate()
 
         @kb.add("escape")
         def _clear(_event) -> None:
             self.selected.clear()
+            self.app.invalidate()
 
         @kb.add("r")
         def _refresh(_event) -> None:
@@ -119,11 +120,17 @@ class LauncherTUI:
 
         @kb.add("b")
         def _launch_batches(_event) -> None:
-            self._run_action("Launch batches", self.controller.launch_workers_in_batches)
+            self._run_action(
+                "Launch batches",
+                lambda: self.controller.launch_workers_in_batches(self._selected_or_all_worker_ids()),
+            )
 
         @kb.add("s")
         def _start_selected(_event) -> None:
-            self._run_action("Start selection", lambda: self.controller.send_start_to_workers(self._active_worker_ids()))
+            self._run_action(
+                "Launch + start selection",
+                lambda: self.controller.launch_and_start_workers(self._active_worker_ids()),
+            )
 
         @kb.add("a")
         def _start_visible(_event) -> None:
@@ -146,6 +153,11 @@ class LauncherTUI:
             return sorted(self.selected)
         state = self._current_state()
         return [state.worker_id] if state is not None else []
+
+    def _selected_or_all_worker_ids(self) -> list[int]:
+        if self.selected:
+            return sorted(self.selected)
+        return [state.worker_id for state in self.states]
 
     def _current_state(self) -> WorkerState | None:
         if not self.states:
@@ -219,24 +231,28 @@ class LauncherTUI:
 
     def _render_footer(self):
         line = (
-            "  up/down move  enter/space select  l launch  b batch-launch  s start selected  "
-            "a start visible  t terminate  c CE  r refresh  q quit"
+            "  up/down move  enter/space select  l launch  b batch-launch selection/all  "
+            "s launch+start selected  a start visible  t terminate  c CE  r refresh  q quit"
         )
         return [("class:footer", line)]
 
+    def _render_logs(self):
+        lines = self.controller.render_logs().splitlines()
+        if not lines:
+            lines = ["No events yet."]
+        return [("class:row", "\n".join(lines[-200:]))]
+
     def _refresh_now(self, force_brightness: bool = False) -> None:
         self.states = self.controller.refresh_states(include_brightness=force_brightness)
-        self.log_area.text = self.controller.render_logs()
         self.app.invalidate()
 
     def _refresh_loop(self) -> None:
         last_brightness = 0.0
         while not self._stop.is_set():
-            include_brightness = force = (time.monotonic() - last_brightness) >= self.controller.config.brightness_refresh_interval
+            include_brightness = (time.monotonic() - last_brightness) >= self.controller.config.brightness_refresh_interval
             if include_brightness:
                 last_brightness = time.monotonic()
             self.states = self.controller.refresh_states(include_brightness=include_brightness)
-            self.log_area.text = self.controller.render_logs()
             if self.app.is_running:
                 self.app.invalidate()
             self._stop.wait(self.controller.config.poll_interval)

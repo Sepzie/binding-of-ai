@@ -226,6 +226,35 @@ class LauncherController:
             sent += 1
         return sent > 0
 
+    def launch_and_start_workers(self, worker_ids: Iterable[int]) -> bool:
+        target_ids = self._normalize_worker_ids(worker_ids)
+        if not target_ids:
+            return True
+
+        states = {state.worker_id: state for state in self.refresh_states(include_brightness=False)}
+        missing = [
+            worker_id
+            for worker_id in target_ids
+            if not states[worker_id].window_visible and not states[worker_id].tcp_ready
+        ]
+        if missing:
+            self.append_log(
+                f"Launching missing workers before start: {', '.join(str(worker_id) for worker_id in missing)}"
+            )
+            if not self.launch_workers(missing):
+                return False
+
+        refreshed = {state.worker_id: state for state in self.refresh_states(include_brightness=True)}
+        invisible = [worker_id for worker_id in target_ids if not refreshed[worker_id].window_visible]
+        if invisible:
+            self.append_log(
+                "Still no visible window for workers: "
+                + ", ".join(str(worker_id) for worker_id in invisible),
+                level=logging.WARNING,
+            )
+
+        return self.send_start_to_workers(target_ids)
+
     def send_start_to_visible_workers(self) -> bool:
         states = self.refresh_states(include_brightness=False)
         visible = [state.worker_id for state in states if state.window_visible]
