@@ -50,6 +50,23 @@ Or directly:
 .venv\Scripts\python python\train.py --config configs\phase1a.yaml
 ```
 
+### 4a. Parallel Launcher / TUI
+
+For multi-instance runs, launch the worker manager first:
+
+```powershell
+.venv\Scripts\python python\launcher.py tui --workers 8 --batch-size 4
+```
+
+The TUI monitors worker windows and TCP readiness, and lets you launch batches,
+send start sequences to selected workers, or terminate specific sandboxes.
+
+For the headless worker flow, use:
+
+```powershell
+.venv\Scripts\python python\launcher.py launch --workers 8 --batch-size 4
+```
+
 ### 5. Monitor
 
 ```powershell
