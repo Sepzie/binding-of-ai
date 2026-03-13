@@ -1,7 +1,7 @@
 env:
   include_continuous_position_features: true
   frame_skip: 3
-  max_episode_steps: 500
+  max_episode_steps: 800
   n_workers: 4
   base_port: 9999
 
@@ -18,7 +18,7 @@ reward:
   nav_reach_bonus: 0.0
 
 train:
-  total_timesteps: 500000
+  total_timesteps: 1000000
   learning_rate: 0.00005
   n_steps: 2048
   batch_size: 256
