@@ -3,6 +3,8 @@ import tempfile
 import textwrap
 import unittest
 
+import numpy as np
+
 from config import load_config, RewardConfig
 from game_state import GameState, PlayerState
 from reward import RewardShaper
@@ -71,6 +73,15 @@ class RewardShaperWallCollisionTests(unittest.TestCase):
 
         self.assertEqual(reward, 0.0)
         self.assertEqual(shaper.reward_components["wall_collision"], 0.0)
+
+    def test_accepts_numpy_action_arrays_from_sb3(self):
+        shaper = self.make_shaper()
+
+        shaper.compute(make_state((100.0, 100.0)))
+        reward = shaper.compute(make_state((102.0, 100.1)), action=np.array([6, 0]))
+
+        self.assertEqual(reward, -0.5)
+        self.assertEqual(shaper.reward_components["wall_collision"], -0.5)
 
 
 class ConfigObstacleWiringTests(unittest.TestCase):

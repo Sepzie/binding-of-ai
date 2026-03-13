@@ -141,7 +141,8 @@ class RewardShaper:
         if self.config.wall_collision_penalty == 0.0:
             return 0.0
 
-        if not action or len(action) == 0 or int(action[0]) == 0:
+        movement_action = self._movement_action(action)
+        if movement_action == 0:
             return 0.0
 
         prev_pos = self._player_position(self.prev_state)
@@ -154,7 +155,7 @@ class RewardShaper:
         if math.dist(prev_pos, curr_pos) < self.WALL_COLLISION_DISTANCE_THRESHOLD:
             return self.config.wall_collision_penalty
 
-        move_components = self.MOVE_DIRECTION_COMPONENTS.get(int(action[0]))
+        move_components = self.MOVE_DIRECTION_COMPONENTS.get(movement_action)
         if not move_components:
             return 0.0
 
@@ -163,6 +164,22 @@ class RewardShaper:
                 return self.config.wall_collision_penalty
 
         return 0.0
+
+    @staticmethod
+    def _movement_action(action: Sequence[int] | None) -> int:
+        if action is None:
+            return 0
+
+        try:
+            if len(action) == 0:
+                return 0
+        except TypeError:
+            return 0
+
+        try:
+            return int(action[0])
+        except (IndexError, TypeError, ValueError):
+            return 0
 
     def _total_hp(self, player: PlayerState) -> float:
         return player.total_hp
