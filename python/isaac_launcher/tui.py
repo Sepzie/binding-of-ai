@@ -107,7 +107,7 @@ class LauncherTUI:
 
         @kb.add("r")
         def _refresh(_event) -> None:
-            self._run_action("Refresh", lambda: None, force_brightness=True)
+            self._run_action("Refresh", lambda: None, force_brightness=True, clear_selection=False)
 
         @kb.add("c")
         def _ce(_event) -> None:
@@ -256,7 +256,13 @@ class LauncherTUI:
                 self.app.invalidate()
             self._stop.wait(self.controller.config.poll_interval)
 
-    def _run_action(self, label: str, func, force_brightness: bool = True) -> None:
+    def _run_action(
+        self,
+        label: str,
+        func,
+        force_brightness: bool = True,
+        clear_selection: bool = True,
+    ) -> None:
         if self._action_lock.locked():
             self.controller.append_log("Another action is already running.")
             return
@@ -270,6 +276,8 @@ class LauncherTUI:
                 except Exception as exc:  # pragma: no cover - UI guardrail
                     self.controller.append_log(f"Action failed: {label}: {exc}")
                 finally:
+                    if clear_selection:
+                        self.selected.clear()
                     self.active_action = "idle"
                     self._refresh_now(force_brightness=force_brightness)
 
