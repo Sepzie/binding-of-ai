@@ -51,7 +51,6 @@ class LauncherTUI:
             key_bindings=self._bindings(),
             style=self._style(),
             full_screen=True,
-            refresh_interval=0.25,
         )
         self._refresh_thread = threading.Thread(target=self._refresh_loop, daemon=True)
 
@@ -108,7 +107,7 @@ class LauncherTUI:
 
         @kb.add("r")
         def _refresh(_event) -> None:
-            self._refresh_now(force_brightness=True)
+            self._run_action("Refresh", lambda: None, force_brightness=True)
 
         @kb.add("c")
         def _ce(_event) -> None:
@@ -257,7 +256,7 @@ class LauncherTUI:
                 self.app.invalidate()
             self._stop.wait(self.controller.config.poll_interval)
 
-    def _run_action(self, label: str, func) -> None:
+    def _run_action(self, label: str, func, force_brightness: bool = True) -> None:
         if self._action_lock.locked():
             self.controller.append_log("Another action is already running.")
             return
@@ -272,7 +271,7 @@ class LauncherTUI:
                     self.controller.append_log(f"Action failed: {label}: {exc}")
                 finally:
                     self.active_action = "idle"
-                    self._refresh_now(force_brightness=True)
+                    self._refresh_now(force_brightness=force_brightness)
 
         threading.Thread(target=runner, daemon=True).start()
 

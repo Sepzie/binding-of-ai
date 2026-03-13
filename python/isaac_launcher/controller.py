@@ -33,6 +33,8 @@ class LauncherController:
         self._last_error: dict[int, str] = {}
         self._logs: deque[str] = deque(maxlen=250)
         self._last_snapshot: list[WorkerState] = []
+        self._tcp_status_cache: dict[int, tuple[bool, float]] = {}
+        self._brightness_cache: dict[int, tuple[int, float | None, bool, float]] = {}
         self.append_log("Launcher controller initialized.")
 
     def worker_ids(self) -> list[int]:
@@ -84,49 +86,118 @@ class LauncherController:
                 self._worker_hwnds[worker_id] = window.hwnd
                 self._last_action[worker_id] = f"Window {window.hwnd} assigned"
 
+    def _tcp_probe_interval(self, state: WorkerState, cached_ready: bool) -> float:
+        if state.launch_requested:
+            return max(0.5, self.config.poll_interval)
+        if state.window_visible and not state.tcp_ready:
+            return max(0.5, self.config.poll_interval)
+        if cached_ready:
+            return 5.0
+        return 15.0
+
+    def _get_cached_tcp_ready(self, state: WorkerState, now: float) -> bool:
+        cached_ready, cached_at = self._tcp_status_cache.get(state.worker_id, (False, 0.0))
+        interval = self._tcp_probe_interval(state, cached_ready)
+        should_probe = (
+            state.launch_requested
+            or state.window_visible
+            or cached_ready
+            or (now - cached_at) >= interval
+        )
+        if should_probe:
+            cached_ready = discovery.probe_port(self.config.host, state.port)
+            self._tcp_status_cache[state.worker_id] = (cached_ready, now)
+        return cached_ready
+
+    def _get_cached_brightness(
+        self,
+        worker_id: int,
+        hwnd: int | None,
+        include_brightness: bool,
+        now: float,
+    ) -> tuple[float | None, bool]:
+        if hwnd is None:
+            self._brightness_cache.pop(worker_id, None)
+            return None, False
+
+        cached = self._brightness_cache.get(worker_id)
+        if cached is not None:
+            cached_hwnd, cached_value, cached_loaded, cached_at = cached
+            if cached_hwnd == hwnd and (not include_brightness or (now - cached_at) < self.config.brightness_refresh_interval):
+                return cached_value, cached_loaded
+
+        if not include_brightness:
+            return None, False
+
+        brightness = discovery.window_brightness(hwnd)
+        loaded = brightness is not None and 50 < brightness < 220
+        self._brightness_cache[worker_id] = (hwnd, brightness, loaded, now)
+        return brightness, loaded
+
     def refresh_states(self, include_brightness: bool = False) -> list[WorkerState]:
         windows = {window.hwnd: window for window in discovery.find_isaac_windows()}
-        previous = {state.worker_id: state for state in self._last_snapshot}
+        now = time.monotonic()
 
         with self._lock:
-            for worker_id, hwnd in list(self._worker_hwnds.items()):
-                if hwnd not in windows:
-                    self._worker_hwnds.pop(worker_id, None)
-
-            assigned_hwnds = set(self._worker_hwnds.values())
+            worker_hwnds = {
+                worker_id: hwnd
+                for worker_id, hwnd in self._worker_hwnds.items()
+                if hwnd in windows
+            }
+            assigned_hwnds = set(worker_hwnds.values())
             unassigned_windows = [window for hwnd, window in windows.items() if hwnd not in assigned_hwnds]
             unassigned_windows.sort(key=lambda window: window.hwnd)
-            unmapped_workers = [worker_id for worker_id in self.worker_ids() if worker_id not in self._worker_hwnds]
+            unmapped_workers = [worker_id for worker_id in self.worker_ids() if worker_id not in worker_hwnds]
             for worker_id, window in zip(unmapped_workers, unassigned_windows):
-                self._worker_hwnds[worker_id] = window.hwnd
+                worker_hwnds[worker_id] = window.hwnd
 
-            snapshot: list[WorkerState] = []
-            for worker_id in self.worker_ids():
-                state = self._state_template(worker_id)
-                hwnd = self._worker_hwnds.get(worker_id)
-                if hwnd is not None and hwnd in windows:
-                    window = windows[hwnd]
-                    state.hwnd = window.hwnd
-                    state.title = window.title
-                    state.pid = window.pid
-                    state.window_visible = True
+            launch_requested = set(self._launch_requested)
+            last_action = dict(self._last_action)
+            last_error = dict(self._last_error)
 
-                state.tcp_ready = discovery.probe_port(self.config.host, state.port)
-                if state.tcp_ready:
-                    self._launch_requested.discard(worker_id)
-                    if not state.last_action:
-                        state.last_action = "TCP ready"
+        snapshot: list[WorkerState] = []
+        ready_workers: list[int] = []
+        for worker_id in self.worker_ids():
+            state = WorkerState(
+                worker_id=worker_id,
+                sandbox_name=self.config.sandbox_name(self.paths, worker_id),
+                port=self.config.port_for(worker_id),
+                launch_requested=worker_id in launch_requested,
+                last_action=last_action.get(worker_id, ""),
+                last_error=last_error.get(worker_id, ""),
+            )
+            hwnd = worker_hwnds.get(worker_id)
+            if hwnd is not None and hwnd in windows:
+                window = windows[hwnd]
+                state.hwnd = window.hwnd
+                state.title = window.title
+                state.pid = window.pid
+                state.window_visible = True
 
-                prev_state = previous.get(worker_id)
-                if include_brightness and state.window_visible and state.hwnd is not None:
-                    state.brightness = discovery.window_brightness(state.hwnd)
-                    state.loaded = state.brightness is not None and 50 < state.brightness < 220
-                elif prev_state is not None:
-                    state.brightness = prev_state.brightness
-                    state.loaded = prev_state.loaded
+            state.tcp_ready = self._get_cached_tcp_ready(state, now)
+            if state.window_visible:
+                state.brightness, state.loaded = self._get_cached_brightness(
+                    worker_id,
+                    state.hwnd,
+                    include_brightness,
+                    now,
+                )
+            else:
+                state.brightness = None
+                state.loaded = False
+                self._brightness_cache.pop(worker_id, None)
 
-                snapshot.append(state)
+            if state.tcp_ready:
+                ready_workers.append(worker_id)
+                if not state.last_action:
+                    state.last_action = "TCP ready"
 
+            snapshot.append(state)
+
+        with self._lock:
+            self._worker_hwnds = worker_hwnds
+            for worker_id in ready_workers:
+                self._launch_requested.discard(worker_id)
             self._last_snapshot = snapshot
             return [replace(state) for state in snapshot]
 
@@ -142,10 +213,17 @@ class LauncherController:
         self.append_log("Cheat Engine ready." if ok else "Cheat Engine not ready.")
         return ok
 
-    def launch_workers(self, worker_ids: Iterable[int], ensure_ce: bool = True) -> bool:
+    def launch_workers(
+        self,
+        worker_ids: Iterable[int],
+        ensure_ce: bool = True,
+        auto_start: bool | None = None,
+    ) -> bool:
         target_ids = self._normalize_worker_ids(worker_ids)
         if not target_ids:
             return True
+        if auto_start is None:
+            auto_start = self.config.auto_start
 
         if ensure_ce and self.config.ensure_ce and not self.ensure_cheat_engine():
             return False
@@ -201,20 +279,29 @@ class LauncherController:
             self.append_log(f"Workers {', '.join(str(worker_id) for worker_id in pending)} reached a loaded window state.")
         else:
             self.append_log("Some windows did not confirm load state; continued after fallback delay.")
+
+        if auto_start:
+            self.send_start_to_workers(pending)
         return True
 
-    def launch_workers_in_batches(self, worker_ids: Iterable[int] | None = None) -> bool:
+    def launch_workers_in_batches(
+        self,
+        worker_ids: Iterable[int] | None = None,
+        auto_start: bool | None = None,
+    ) -> bool:
         target_ids = self._normalize_worker_ids(worker_ids)
         if not target_ids:
             return True
         if self.config.ensure_ce and not self.ensure_cheat_engine():
             return False
+        if auto_start is None:
+            auto_start = self.config.auto_start
 
         batch_size = self.config.batch_size if self.config.batch_size > 0 else len(target_ids)
         for batch_start in range(0, len(target_ids), batch_size):
             batch = target_ids[batch_start: batch_start + batch_size]
             self.append_log(f"Launching batch: {', '.join(str(worker_id) for worker_id in batch)}")
-            if not self.launch_workers(batch, ensure_ce=False):
+            if not self.launch_workers(batch, ensure_ce=False, auto_start=auto_start):
                 return False
         return True
 
@@ -252,19 +339,13 @@ class LauncherController:
             self.append_log(
                 f"Launching missing workers before start: {', '.join(str(worker_id) for worker_id in missing)}"
             )
-            if not self.launch_workers(missing):
+            if not self.launch_workers(missing, auto_start=True):
                 return False
 
-        refreshed = {state.worker_id: state for state in self.refresh_states(include_brightness=True)}
-        invisible = [worker_id for worker_id in target_ids if not refreshed[worker_id].window_visible]
-        if invisible:
-            self.append_log(
-                "Still no visible window for workers: "
-                + ", ".join(str(worker_id) for worker_id in invisible),
-                level=logging.WARNING,
-            )
-
-        return self.send_start_to_workers(target_ids)
+        already_present = [worker_id for worker_id in target_ids if worker_id not in missing]
+        if not already_present:
+            return True
+        return self.send_start_to_workers(already_present)
 
     def send_start_to_visible_workers(self) -> bool:
         states = self.refresh_states(include_brightness=False)
@@ -313,10 +394,8 @@ class LauncherController:
             f"Using staged launch for {self.config.workers} worker(s); batch size "
             f"{self.config.batch_size if self.config.batch_size > 0 else self.config.workers}."
         )
-        if not self.launch_workers_in_batches():
+        if not self.launch_workers_in_batches(auto_start=self.config.auto_start):
             return False
-        if self.config.auto_start:
-            self.send_start_to_visible_workers()
-        else:
+        if not self.config.auto_start:
             self.append_log("Auto-start disabled; start each window manually.")
         return self.wait_for_ports(self.worker_ids())
