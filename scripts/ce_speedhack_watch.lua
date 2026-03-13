@@ -33,9 +33,141 @@ local RETRY_SLEEP_MS = tonumber(
 local FAILURE_COOLDOWN_MS = tonumber(
   _G.ISAAC_SPEEDHACK_FAILURE_COOLDOWN_MS or os.getenv("ISAAC_SPEEDHACK_FAILURE_COOLDOWN_MS") or ""
 ) or 5000
+local ATTACH_SETTLE_MS = tonumber(
+  _G.ISAAC_SPEEDHACK_ATTACH_SETTLE_MS or os.getenv("ISAAC_SPEEDHACK_ATTACH_SETTLE_MS") or ""
+) or 100
 
 local function log(msg)
   print(("[isaac-speedhack-watch] %s"):format(msg))
+end
+
+local function install_ce_helper_workaround()
+  if _G.ISAAC_SPEEDHACK_CELIB_WRAPPED then
+    return
+  end
+
+  local original_inject = injectCEHelperLib
+  if type(original_inject) ~= "function" then
+    return
+  end
+
+  local function fixed_inject()
+    if getAddressSafe("csenter") ~= nil then
+      return true
+    end
+
+    local script
+    if targetIsX86() then
+      script = [[
+alloc(cespinlock,32)
+cespinlock:
+]]
+
+      if targetIs64Bit() then
+        if getABI() == 0 then
+          script = script .. [[
+lock bts [rcx],0
+]]
+        else
+          script = script .. [[
+lock bts [rdi],0
+]]
+        end
+      else
+        script = script .. [[
+mov eax,[esp+4]
+lock bts [eax],0
+]]
+      end
+
+      script = script .. [[
+jc cespinlock_wait
+ret
+
+cespinlock_wait:
+pause
+jmp cespinlock
+]]
+    else
+      error("todo: implement a spinlock for arm (could halfass it and just call an api)")
+    end
+
+    script = script .. [[
+{$c}
+#include <celib.h>
+extern void cespinlock(int *lock);
+#ifdef _WIN32
+  #include <windows.h>
+  static int getCurrentThreadID(void)
+  {
+    return (int)GetCurrentThreadId();
+  }
+#else
+  extern int gettid();
+  int getCurrentThreadID()
+  {
+    return gettid();
+  }
+#endif
+
+void csenter(cecs *cs)
+{
+  if ((cs->locked) && (cs->threadid==getCurrentThreadID()))
+  {
+    cs->lockcount++;
+    return;
+  }
+
+  cespinlock(&cs->locked);
+  cs->threadid=getCurrentThreadID();
+  cs->lockcount++;
+}
+
+void csleave(cecs *cs)
+{
+  cs->lockcount--;
+  if (cs->lockcount==0)
+  {
+    cs->threadid=0;
+    cs->locked=0;
+  }
+}
+{$asm}
+]]
+
+    local ok, err = autoAssemble(script)
+    if ok then
+      if err and err.ccodesymbols then
+        err.ccodesymbols.name = "CELib"
+      end
+      return true
+    end
+    return false, err
+  end
+
+  injectCEHelperLib = function()
+    local ok, result, err = pcall(original_inject)
+    if ok and result then
+      return result, err
+    end
+
+    local original_err = ok and err or result
+    local err_text = tostring(original_err)
+    if err_text:find("getCurrentThreadID", 1, true) then
+      if not _G.ISAAC_SPEEDHACK_CELIB_WORKAROUND_LOGGED then
+        _G.ISAAC_SPEEDHACK_CELIB_WORKAROUND_LOGGED = true
+        log("Applying CE 7.6 celib workaround for getCurrentThreadID")
+      end
+      return fixed_inject()
+    end
+
+    if ok then
+      return result, err
+    end
+    return false, tostring(result)
+  end
+
+  _G.ISAAC_SPEEDHACK_CELIB_WRAPPED = true
 end
 
 local function destroy_timer(timer)
@@ -56,6 +188,8 @@ end
 if _G.ISAAC_SPEEDHACK_WATCH and _G.ISAAC_SPEEDHACK_WATCH.timer then
   destroy_timer(_G.ISAAC_SPEEDHACK_WATCH.timer)
 end
+
+install_ce_helper_workaround()
 
 local applied_pids = {}
 local retry_after_tick = {}
@@ -84,6 +218,12 @@ local function attach_and_speedhack(pid)
   if getOpenedProcessID() ~= pid then
     return false, "openProcess did not attach to requested pid"
   end
+  if ATTACH_SETTLE_MS > 0 then
+    sleep(ATTACH_SETTLE_MS)
+  end
+  pcall(function()
+    reinitializeSymbolhandler()
+  end)
 
   local ok_speed, speed_err = pcall(function()
     speedhack_setSpeed(TARGET_SPEED)
