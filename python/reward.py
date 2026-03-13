@@ -9,6 +9,17 @@ class RewardShaper:
     """Computes reward from state diffs between consecutive ticks."""
 
     WALL_COLLISION_DISTANCE_THRESHOLD = 1.0
+    WALL_COLLISION_AXIS_THRESHOLD = 0.5
+    MOVE_DIRECTION_COMPONENTS = {
+        1: (0, -1),
+        2: (0, 1),
+        3: (-1, 0),
+        4: (1, 0),
+        5: (-1, -1),
+        6: (1, -1),
+        7: (-1, 1),
+        8: (1, 1),
+    }
 
     def __init__(self, config: RewardConfig):
         self.config = config
@@ -138,10 +149,20 @@ class RewardShaper:
         if prev_pos is None or curr_pos is None:
             return 0.0
 
-        if math.dist(prev_pos, curr_pos) >= self.WALL_COLLISION_DISTANCE_THRESHOLD:
+        dx = curr_pos[0] - prev_pos[0]
+        dy = curr_pos[1] - prev_pos[1]
+        if math.dist(prev_pos, curr_pos) < self.WALL_COLLISION_DISTANCE_THRESHOLD:
+            return self.config.wall_collision_penalty
+
+        move_components = self.MOVE_DIRECTION_COMPONENTS.get(int(action[0]))
+        if not move_components:
             return 0.0
 
-        return self.config.wall_collision_penalty
+        for intended, actual in ((move_components[0], dx), (move_components[1], dy)):
+            if intended != 0 and actual * intended < self.WALL_COLLISION_AXIS_THRESHOLD:
+                return self.config.wall_collision_penalty
+
+        return 0.0
 
     def _total_hp(self, player: PlayerState) -> float:
         return player.total_hp
