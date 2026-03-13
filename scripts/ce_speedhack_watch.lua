@@ -97,10 +97,9 @@ jmp cespinlock
 #include <celib.h>
 extern void cespinlock(int *lock);
 #ifdef _WIN32
-  #include <windows.h>
   static int getCurrentThreadID(void)
   {
-    return (int)GetCurrentThreadId();
+    return 0;
   }
 #else
   extern int gettid();
@@ -112,25 +111,16 @@ extern void cespinlock(int *lock);
 
 void csenter(cecs *cs)
 {
-  if ((cs->locked) && (cs->threadid==getCurrentThreadID()))
-  {
-    cs->lockcount++;
-    return;
-  }
-
   cespinlock(&cs->locked);
   cs->threadid=getCurrentThreadID();
-  cs->lockcount++;
+  cs->lockcount=1;
 }
 
 void csleave(cecs *cs)
 {
-  cs->lockcount--;
-  if (cs->lockcount==0)
-  {
-    cs->threadid=0;
-    cs->locked=0;
-  }
+  cs->lockcount=0;
+  cs->threadid=0;
+  cs->locked=0;
 }
 {$asm}
 ]]
