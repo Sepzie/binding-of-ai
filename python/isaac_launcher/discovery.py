@@ -8,7 +8,7 @@ import time
 
 from PIL import Image
 
-from win32_utils import get_pid_from_hwnd, get_window_rect
+from win32_utils import get_pid_from_hwnd, get_process_image_name, get_window_rect
 
 from .models import IsaacWindow
 
@@ -18,7 +18,8 @@ user32 = ctypes.windll.user32
 
 def find_isaac_windows() -> list[IsaacWindow]:
     """Return visible Isaac windows."""
-    windows: list[IsaacWindow] = []
+    windows_by_pid: dict[int, IsaacWindow] = {}
+    process_name_cache: dict[int, str | None] = {}
 
     def callback(hwnd, _):
         if user32.IsWindowVisible(hwnd):
@@ -27,8 +28,26 @@ def find_isaac_windows() -> list[IsaacWindow]:
                 buf = ctypes.create_unicode_buffer(length + 1)
                 user32.GetWindowTextW(hwnd, buf, length + 1)
                 title = buf.value
-                if "isaac" in title.lower() and "steam" not in title.lower():
-                    windows.append(IsaacWindow(hwnd=hwnd, title=title, pid=get_pid_from_hwnd(hwnd)))
+                pid = get_pid_from_hwnd(hwnd)
+                process_name = process_name_cache.get(pid)
+                if process_name is None and pid not in process_name_cache:
+                    process_name = get_process_image_name(pid)
+                    process_name_cache[pid] = process_name
+                if process_name != "isaac-ng.exe":
+                    return True
+
+                candidate = IsaacWindow(hwnd=hwnd, title=title, pid=pid)
+                existing = windows_by_pid.get(pid)
+                if existing is None:
+                    windows_by_pid[pid] = candidate
+                    return True
+
+                rect = get_window_rect(hwnd)
+                existing_rect = get_window_rect(existing.hwnd)
+                area = max(0, rect[2] - rect[0]) * max(0, rect[3] - rect[1])
+                existing_area = max(0, existing_rect[2] - existing_rect[0]) * max(0, existing_rect[3] - existing_rect[1])
+                if area > existing_area:
+                    windows_by_pid[pid] = candidate
         return True
 
     wnd_enum_proc = ctypes.WINFUNCTYPE(
@@ -37,6 +56,7 @@ def find_isaac_windows() -> list[IsaacWindow]:
         ctypes.wintypes.LPARAM,
     )
     user32.EnumWindows(wnd_enum_proc(callback), 0)
+    windows = list(windows_by_pid.values())
     windows.sort(key=lambda window: window.hwnd)
     return windows
 

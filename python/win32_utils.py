@@ -1,8 +1,10 @@
 import ctypes
 import ctypes.wintypes
+from pathlib import Path
 import time
 
 user32 = ctypes.windll.user32
+kernel32 = ctypes.windll.kernel32
 
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
@@ -15,6 +17,8 @@ SC_RIGHT = 0x4D
 
 _VK_TO_SC = {VK_RETURN: SC_ENTER, VK_RIGHT: SC_RIGHT}
 _EXTENDED_KEYS = {VK_RIGHT}
+
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 
 def send_key(hwnd, vk_code: int, press_delay: float = 0.05) -> None:
@@ -40,3 +44,22 @@ def get_window_rect(hwnd) -> tuple[int, int, int, int]:
     rect = ctypes.wintypes.RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(rect))
     return (rect.left, rect.top, rect.right, rect.bottom)
+
+
+def get_process_image_name(pid: int) -> str | None:
+    """Return the basename of the executable for a process id."""
+    if pid <= 0:
+        return None
+
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return None
+
+    try:
+        size = ctypes.wintypes.DWORD(32768)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+            return Path(buffer.value).name.lower()
+        return None
+    finally:
+        kernel32.CloseHandle(handle)
