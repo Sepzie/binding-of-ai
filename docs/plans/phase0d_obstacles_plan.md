@@ -227,53 +227,13 @@ end
 
 ### 5. Phase 0d config file
 
-```yaml
-# configs/phase0d-obstacles.yaml
-env:
-  include_continuous_position_features: true
-  frame_skip: 3
-  max_episode_steps: 1000
-  n_workers: 4
-  base_port: 9999
+See `configs/phase0d-obstacles.yaml` (already created).
 
-reward:
-  pickup_collected: 5.0
-  time_penalty: -0.05
-  death: -10.0
-  wall_collision_penalty: -0.5
-  # everything else 0.0
-
-train:
-  total_timesteps: 1000000
-  learning_rate: 0.00005
-  n_steps: 2048
-  batch_size: 256
-  n_epochs: 4
-  clip_range: 0.1
-  target_kl: 0.03
-  ent_coef: 0.01
-
-phase:
-  spawn_pickup_penny: true
-  pickup_random_position: true
-  pickup_radius_min: 120.0
-  pickup_radius_max: 200.0
-  respawn_pickup: true
-  terminal_on_pickup: false
-  spawn_enemies: false
-  disable_shooting: true
-  mask_shoot: true
-  spawn_obstacles: true
-  obstacle_count: 3        # start small
-  obstacle_type: 4         # indestructible stone
-  obstacle_min_spacing: 2
-
-wandb:
-  enabled: true
-  project: "binding-of-ai"
-  run_name: "phase0d-obstacles-3rocks"
-  tags: ["phase0d", "obstacles", "wall-penalty", "multicoin"]
-```
+Key differences from phase0c:
+- `wall_collision_penalty: -0.5` (new)
+- `spawn_obstacles: true`, `obstacle_count: 3`, `obstacle_type: 4` (new)
+- `max_episode_steps: 1000` (up from 800, more time to navigate around obstacles)
+- No enemies, shooting disabled/masked (same as phase0c)
 
 ---
 
