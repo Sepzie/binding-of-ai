@@ -90,6 +90,7 @@ class PlayerState:
 class GameState:
     episode_id: int = 0
     episode_tick: int = 0
+    pickups_collected: int = 0
     terminal: bool = False
     terminal_reason: str | None = None
     room_cleared: bool = False
@@ -108,6 +109,7 @@ class GameState:
         return GameState(
             episode_id=int(data.get("episode_id", 0)),
             episode_tick=int(data.get("episode_tick", 0)),
+            pickups_collected=int(data.get("pickups_collected", 0)),
             terminal=bool(data.get("terminal", False)),
             terminal_reason=data.get("terminal_reason"),
             room_cleared=bool(data.get("room_cleared", False)),

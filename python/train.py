@@ -150,16 +150,25 @@ class IsaacMetricsCallback(BaseCallback):
 
     ROLLING_WINDOW = 50
 
-    def __init__(self, use_wandb=False, include_continuous_features=False, verbose=0):
+    def __init__(
+        self,
+        use_wandb=False,
+        include_continuous_features=False,
+        wall_collision_penalty: float = 0.0,
+        verbose=0,
+    ):
         super().__init__(verbose)
         self.use_wandb = use_wandb
         self.include_continuous_features = include_continuous_features
+        self.wall_collision_penalty = wall_collision_penalty
         self._ep_count = 0
         # Rolling window buffers
         self._recent_rewards: list[float] = []
         self._recent_lengths: list[int] = []
         self._recent_wins: list[float] = []
         self._recent_pickups: list[float] = []
+        self._recent_pickup_counts: list[float] = []
+        self._recent_wall_collision_steps: list[float] = []
         self._last_train_log_step = 0
         self._nav_stats_by_env: dict[int, dict] = {}
 
@@ -247,17 +256,21 @@ class IsaacMetricsCallback(BaseCallback):
     def _reset_nav_stats(self, env_idx: int) -> None:
         self._nav_stats_by_env[env_idx] = self._fresh_nav_stats()
 
-    def _append_rolling(self, rewards, lengths, won, pickup):
+    def _append_rolling(self, rewards, lengths, won, pickup, pickup_count, wall_collision_steps):
         w = self.ROLLING_WINDOW
         self._recent_rewards.append(rewards)
         self._recent_lengths.append(lengths)
         self._recent_wins.append(won)
         self._recent_pickups.append(pickup)
+        self._recent_pickup_counts.append(pickup_count)
+        self._recent_wall_collision_steps.append(wall_collision_steps)
         if len(self._recent_rewards) > w:
             self._recent_rewards = self._recent_rewards[-w:]
             self._recent_lengths = self._recent_lengths[-w:]
             self._recent_wins = self._recent_wins[-w:]
             self._recent_pickups = self._recent_pickups[-w:]
+            self._recent_pickup_counts = self._recent_pickup_counts[-w:]
+            self._recent_wall_collision_steps = self._recent_wall_collision_steps[-w:]
 
     def _rolling_metrics(self) -> dict:
         n = len(self._recent_rewards)
@@ -268,6 +281,8 @@ class IsaacMetricsCallback(BaseCallback):
             "rollout/ep_rew_mean": sum(self._recent_rewards) / n,
             "rollout/ep_len_mean": sum(self._recent_lengths) / n,
             "rollout/pickup_rate": sum(self._recent_pickups) / n,
+            "rollout/pickups_collected_mean": sum(self._recent_pickup_counts) / n,
+            "rollout/wall_collision_steps_mean": sum(self._recent_wall_collision_steps) / n,
         }
 
     def _on_step(self) -> bool:
@@ -287,10 +302,23 @@ class IsaacMetricsCallback(BaseCallback):
             kills = info.get("ep_kills", 0)
             dmg = info.get("ep_damage_taken", 0)
             tps = info.get("game_ticks_per_sec", 0)
+            pickup_count = int(state.pickups_collected) if state else 0
+            ep_reward_components = info.get("ep_reward_components", {})
+            wall_collision_penalty_total = float(ep_reward_components.get("wall_collision", 0.0))
+            wall_collision_steps = 0.0
+            if self.wall_collision_penalty != 0.0:
+                wall_collision_steps = wall_collision_penalty_total / self.wall_collision_penalty
 
             won = float(reason == "room_cleared")
-            pickup = float(info.get("ep_reward_components", {}).get("pickup_collected", 0) > 0)
-            self._append_rolling(ep_reward, ep_length, won, pickup)
+            pickup = float(pickup_count > 0)
+            self._append_rolling(
+                ep_reward,
+                ep_length,
+                won,
+                pickup,
+                float(pickup_count),
+                wall_collision_steps,
+            )
             nav_metrics = self._compute_nav_metrics(env_idx) if self.include_continuous_features else {}
 
             # Console summary (visible in main process)
@@ -322,12 +350,16 @@ class IsaacMetricsCallback(BaseCallback):
 
             # Gameplay metrics
             metrics = {
+                "global_step": self.num_timesteps,
                 "episode/reward": ep_reward,
                 "episode/length": ep_length,
                 "episode/won": won,
                 "episode/kills": kills,
                 "episode/damage_taken": dmg,
+                "episode/pickups_collected": pickup_count,
                 "episode/pickup_collected": pickup,
+                "episode/wall_collision_penalty": wall_collision_penalty_total,
+                "episode/wall_collision_steps": wall_collision_steps,
             }
 
             # Rolling averages
@@ -335,7 +367,7 @@ class IsaacMetricsCallback(BaseCallback):
             metrics.update(nav_metrics)
 
             # Cumulative reward component breakdown
-            for component, value in info.get("ep_reward_components", {}).items():
+            for component, value in ep_reward_components.items():
                 metrics[f"reward/{component}"] = value
 
             # Performance metrics
@@ -387,6 +419,7 @@ class IsaacMetricsCallback(BaseCallback):
             if sb3_key in name_to_value:
                 train_metrics[wandb_key] = name_to_value[sb3_key]
         if train_metrics:
+            train_metrics["global_step"] = step
             wandb.log(train_metrics, step=step)
 
 
@@ -453,6 +486,17 @@ def train(config_path: str | None = None, resume: str | None = None, config=None
             tags=config.wandb.tags,
             config=asdict(config),
         )
+        wandb.define_metric("global_step")
+        for metric_pattern in (
+            "episode/*",
+            "reward/*",
+            "rollout/*",
+            "nav/*",
+            "state/*",
+            "perf/*",
+            "train/*",
+        ):
+            wandb.define_metric(metric_pattern, step_metric="global_step")
 
     # Checkpoint manager — per-run folders, metadata, W&B artifacts
     ckpt_manager = CheckpointManager(
@@ -529,6 +573,7 @@ def train(config_path: str | None = None, resume: str | None = None, config=None
         IsaacMetricsCallback(
             use_wandb=use_wandb,
             include_continuous_features=config.env.include_continuous_position_features,
+            wall_collision_penalty=config.reward.wall_collision_penalty,
         ),
     ]
 
