@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from logging import Handler, LogRecord
 import sys
 import time
 from typing import Iterable
@@ -10,11 +11,42 @@ from .config import LauncherConfig
 from .controller import LauncherController
 
 
-def _configure_logging() -> None:
+class UILogHandler(Handler):
+    def __init__(self, controller: LauncherController) -> None:
+        super().__init__(level=logging.INFO)
+        self.controller = controller
+
+    def emit(self, record: LogRecord) -> None:
+        if record.name.startswith("prompt_toolkit"):
+            return
+        try:
+            message = self.format(record)
+        except Exception:
+            message = record.getMessage()
+        self.controller.record_log_line(message)
+
+
+def _configure_logging(mode: str, controller: LauncherController | None = None) -> None:
+    if mode == "tui":
+        root = logging.getLogger()
+        root.handlers.clear()
+        root.setLevel(logging.INFO)
+        if controller is not None:
+            handler = UILogHandler(controller)
+            handler.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s [%(name)s] %(message)s",
+                    datefmt="%H:%M:%S",
+                )
+            )
+            root.addHandler(handler)
+        return
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(message)s",
         datefmt="%H:%M:%S",
+        force=True,
     )
 
 
@@ -128,9 +160,9 @@ def _hold_until_interrupt(controller: LauncherController) -> None:
 
 
 def main(argv: Iterable[str] | None = None) -> int:
-    _configure_logging()
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
+    _configure_logging(args.command)
     config = _make_config(args)
     controller = LauncherController(config)
 
@@ -140,6 +172,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         return 0
 
     if args.command == "tui":
+        controller.set_logger_echo(False)
+        _configure_logging("tui", controller)
         from .tui import run_tui
 
         run_tui(controller)

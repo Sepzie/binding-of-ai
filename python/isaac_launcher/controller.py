@@ -26,6 +26,7 @@ class LauncherController:
         self.paths = paths or default_paths()
         self.repo_root = repo_path or repo_root()
         self._lock = threading.RLock()
+        self._echo_to_logger = True
         self._worker_hwnds: dict[int, int] = {}
         self._launch_requested: set[int] = set()
         self._last_action: dict[int, str] = {}
@@ -37,11 +38,21 @@ class LauncherController:
     def worker_ids(self) -> list[int]:
         return self.config.worker_ids()
 
+    def set_logger_echo(self, enabled: bool) -> None:
+        with self._lock:
+            self._echo_to_logger = enabled
+
+    def record_log_line(self, message: str) -> None:
+        with self._lock:
+            self._logs.append(message)
+
     def append_log(self, message: str, level: int = logging.INFO) -> None:
         timestamp = time.strftime("%H:%M:%S")
+        self.record_log_line(f"{timestamp} {message}")
         with self._lock:
-            self._logs.append(f"{timestamp} {message}")
-        log.log(level, message)
+            echo = self._echo_to_logger
+        if echo:
+            log.log(level, message)
 
     def render_logs(self, limit: int = 200) -> str:
         with self._lock:
