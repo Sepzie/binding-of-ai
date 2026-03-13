@@ -36,10 +36,11 @@ All three worsen in real gameplay where rooms have complex layouts with rocks, p
   - The action check is important: standing still deliberately (shoot-only) should NOT be penalized
 - Log as `reward_components["wall_collision"]`
 
-#### Challenge: Action context
-- `RewardShaper.compute()` currently only receives the game state, not the action taken. We need to pass the action to `compute()` or store it.
-- **Simplest approach**: Add an optional `action` parameter to `compute()`. `IsaacEnv.step()` already has the action — pass it through.
-- Alternative: just check position delta without action context. Penalize any step where Isaac barely moves. The downside is that this penalizes situations where Isaac is correctly standing still to shoot (future phases). For the current coin-only phase, Isaac should always be moving, so this is fine for now. **Use the simpler approach for now, add action context later when shooting phases need it.**
+#### Action-aware collision detection
+- `RewardShaper.compute()` currently only receives the game state, not the action taken. We need to pass the action so we can distinguish "stuck against wall" from "chose to stand still."
+- **Approach**: Add an `action` parameter to `compute()`. `IsaacEnv.step()` already has the action — pass it through.
+- The action is a MultiDiscrete `[movement, shooting]`. Movement index 0 = no-op. Only apply the penalty when `movement != 0` (agent tried to move) AND position barely changed.
+- This is important for future phases where standing still to shoot is valid behavior.
 
 #### Config
 - Add `wall_collision_penalty: float` to `RewardConfig` (default 0.0 to not break existing configs)
