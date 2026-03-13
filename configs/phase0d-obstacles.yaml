@@ -41,7 +41,7 @@ phase:
   terminal_on_pickup: false
   terminal_pickup_count: 0
   respawn_pickup: true
-  spawn_enemies: false
+  spawn_enemies: true
   random_spawn_positions: false
   spawn_radius_min: 120.0
   spawn_radius_max: 200.0
