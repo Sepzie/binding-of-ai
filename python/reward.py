@@ -1,4 +1,5 @@
 import math
+from collections.abc import Sequence
 
 from config import RewardConfig
 from game_state import GameState, PlayerState
@@ -6,6 +7,8 @@ from game_state import GameState, PlayerState
 
 class RewardShaper:
     """Computes reward from state diffs between consecutive ticks."""
+
+    WALL_COLLISION_DISTANCE_THRESHOLD = 1.0
 
     def __init__(self, config: RewardConfig):
         self.config = config
@@ -20,7 +23,7 @@ class RewardShaper:
         self._nav_target = None
         self._nav_reached = False
 
-    def compute(self, state: GameState) -> float:
+    def compute(self, state: GameState, action: Sequence[int] | None = None) -> float:
         reward = 0.0
         self.reward_components = {}
 
@@ -56,6 +59,10 @@ class RewardShaper:
         pickup_reward = self._compute_pickups(state)
         reward += pickup_reward
         self.reward_components["pickup_collected"] = pickup_reward
+
+        wall_collision_reward = self._compute_wall_collision(state, action)
+        reward += wall_collision_reward
+        self.reward_components["wall_collision"] = wall_collision_reward
 
         # Navigation smoke-test objective (optional)
         nav_reward, nav_progress_reward, nav_reach_bonus = self._compute_nav_reward(state)
@@ -114,6 +121,27 @@ class RewardShaper:
         curr_coins = state.player.num_coins
         collected = max(0, curr_coins - prev_coins)
         return collected * self.config.pickup_collected
+
+    def _compute_wall_collision(
+        self,
+        state: GameState,
+        action: Sequence[int] | None,
+    ) -> float:
+        if self.config.wall_collision_penalty == 0.0:
+            return 0.0
+
+        if not action or len(action) == 0 or int(action[0]) == 0:
+            return 0.0
+
+        prev_pos = self._player_position(self.prev_state)
+        curr_pos = self._player_position(state)
+        if prev_pos is None or curr_pos is None:
+            return 0.0
+
+        if math.dist(prev_pos, curr_pos) >= self.WALL_COLLISION_DISTANCE_THRESHOLD:
+            return 0.0
+
+        return self.config.wall_collision_penalty
 
     def _total_hp(self, player: PlayerState) -> float:
         return player.total_hp

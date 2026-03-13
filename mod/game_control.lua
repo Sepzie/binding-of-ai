@@ -6,8 +6,33 @@ local waitingForReset = false
 local resetFrame = 0
 local RESET_DELAY = 5  -- frames to wait after reset command before sending state
 local pendingPickupRespawn = false
+local spawnedObstacleIndices = {}
+
+local function shuffleInPlace(items)
+    for i = #items, 2, -1 do
+        local j = math.random(i)
+        items[i], items[j] = items[j], items[i]
+    end
+end
+
+local function clearSpawnedObstacles(game)
+    local room = game and game:GetRoom()
+    if not room then
+        spawnedObstacleIndices = {}
+        return
+    end
+
+    for _, idx in ipairs(spawnedObstacleIndices) do
+        if room:GetGridEntity(idx) then
+            room:RemoveGridEntity(idx, 0, false)
+        end
+    end
+    spawnedObstacleIndices = {}
+end
 
 function GameControl.resetEpisode()
+    clearSpawnedObstacles(Game())
+    pendingPickupRespawn = false
     Isaac.ExecuteCommand("restart")
     waitingForReset = true
     resetFrame = 0
@@ -26,6 +51,7 @@ end
 function GameControl.onNewRoom()
     if waitingForReset then
         local game = Game()
+        GameControl.spawnObstacles(game)
         -- Spawn configured enemies
         if Config.SPAWN_ENEMIES then
             GameControl.spawnEnemies(game)
@@ -38,6 +64,60 @@ function GameControl.onNewRoom()
         local room = game:GetRoom()
         player.Position = room:GetCenterPos()
         waitingForReset = false
+    end
+end
+
+function GameControl.spawnObstacles(game)
+    spawnedObstacleIndices = {}
+    if not Config.SPAWN_OBSTACLES or Config.OBSTACLE_COUNT <= 0 then
+        return
+    end
+
+    local room = game:GetRoom()
+    local gridWidth = room:GetGridWidth()
+    local gridSize = room:GetGridSize()
+    local gridHeight = math.max(1, math.floor(gridSize / gridWidth))
+    local centerIdx = room:GetClampedGridIndex(room:GetCenterPos())
+    local centerGX = centerIdx % gridWidth
+    local centerGY = math.floor(centerIdx / gridWidth)
+    local spacing = Config.OBSTACLE_MIN_SPACING or 2
+    local candidates = {}
+
+    for gy = 1, gridHeight - 2 do
+        for gx = 1, gridWidth - 2 do
+            if math.abs(gx - centerGX) > 1 or math.abs(gy - centerGY) > 1 then
+                local idx = gy * gridWidth + gx
+                if not room:GetGridEntity(idx) then
+                    table.insert(candidates, {gx = gx, gy = gy, idx = idx})
+                end
+            end
+        end
+    end
+
+    shuffleInPlace(candidates)
+
+    local placed = {}
+    for _, candidate in ipairs(candidates) do
+        if #placed >= Config.OBSTACLE_COUNT then
+            break
+        end
+
+        local tooClose = false
+        for _, existing in ipairs(placed) do
+            if math.abs(candidate.gx - existing.gx) < spacing
+                and math.abs(candidate.gy - existing.gy) < spacing then
+                tooClose = true
+                break
+            end
+        end
+
+        if not tooClose then
+            room:SpawnGridEntity(candidate.idx, Config.OBSTACLE_TYPE, 0, 0, 0)
+            if room:GetGridEntity(candidate.idx) then
+                table.insert(placed, candidate)
+                table.insert(spawnedObstacleIndices, candidate.idx)
+            end
+        end
     end
 end
 
@@ -215,6 +295,18 @@ function GameControl.configure(settings)
     end
     if settings.spawn_enemies ~= nil then
         Config.SPAWN_ENEMIES = settings.spawn_enemies
+    end
+    if settings.spawn_obstacles ~= nil then
+        Config.SPAWN_OBSTACLES = settings.spawn_obstacles
+    end
+    if settings.obstacle_count ~= nil then
+        Config.OBSTACLE_COUNT = settings.obstacle_count
+    end
+    if settings.obstacle_type ~= nil then
+        Config.OBSTACLE_TYPE = settings.obstacle_type
+    end
+    if settings.obstacle_min_spacing ~= nil then
+        Config.OBSTACLE_MIN_SPACING = settings.obstacle_min_spacing
     end
     if settings.max_episode_ticks then
         Config.MAX_EPISODE_TICKS = settings.max_episode_ticks

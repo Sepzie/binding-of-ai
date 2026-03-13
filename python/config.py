@@ -33,6 +33,7 @@ class RewardConfig:
     damage_taken: float = -10.0
     room_cleared: float = 20.0
     pickup_collected: float = 2.0
+    wall_collision_penalty: float = 0.0
     death: float = -50.0
     time_penalty: float = -0.1
     survival_bonus: float = 0.0
@@ -87,6 +88,10 @@ class PhaseConfig:
     spawn_radius_max: float = 160.0
     disable_shooting: bool = False
     mask_shoot: bool = False
+    spawn_obstacles: bool = False
+    obstacle_count: int = 0
+    obstacle_type: int = 4
+    obstacle_min_spacing: int = 2
 
 
 @dataclass
@@ -127,6 +132,10 @@ class Config:
             "spawn_radius_min": self.phase.spawn_radius_min,
             "spawn_radius_max": self.phase.spawn_radius_max,
             "disable_shooting": self.phase.disable_shooting,
+            "spawn_obstacles": self.phase.spawn_obstacles,
+            "obstacle_count": self.phase.obstacle_count,
+            "obstacle_type": self.phase.obstacle_type,
+            "obstacle_min_spacing": self.phase.obstacle_min_spacing,
             "frame_skip": self.env.frame_skip,
             "max_episode_ticks": self.env.max_episode_steps,
         }

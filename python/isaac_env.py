@@ -250,7 +250,7 @@ class IsaacEnv(gym.Env):
         self._last_episode_tick = episode_tick
 
         # Compute reward
-        reward = self.reward_shaper.compute(state)
+        reward = self.reward_shaper.compute(state, action)
         self._ep_reward += reward
 
         # Track episode stats
