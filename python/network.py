@@ -28,7 +28,7 @@ class IsaacFeatureExtractor(BaseFeaturesExtractor):
             nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.Flatten(),
         )
@@ -40,13 +40,13 @@ class IsaacFeatureExtractor(BaseFeaturesExtractor):
 
         # MLP for player state
         self.player_mlp = nn.Sequential(
-            nn.Linear(player_shape[0], 64),
+            nn.Linear(player_shape[0], 128),
             nn.ReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(128, 128),
             nn.ReLU(),
         )
 
-        combined_size = cnn_out_size + 64
+        combined_size = cnn_out_size + 128
 
         # Final projection to features_dim
         self.fc = nn.Sequential(

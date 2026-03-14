@@ -153,13 +153,11 @@ class IsaacMetricsCallback(BaseCallback):
     def __init__(
         self,
         use_wandb=False,
-        include_continuous_features=False,
         wall_collision_penalty: float = 0.0,
         verbose=0,
     ):
         super().__init__(verbose)
         self.use_wandb = use_wandb
-        self.include_continuous_features = include_continuous_features
         self.wall_collision_penalty = wall_collision_penalty
         self._ep_count = 0
         # Rolling window buffers
@@ -288,8 +286,7 @@ class IsaacMetricsCallback(BaseCallback):
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
         for env_idx, info in enumerate(infos):
-            if self.include_continuous_features:
-                self._update_nav_stats(env_idx, info.get("state"))
+            self._update_nav_stats(env_idx, info.get("state"))
 
             if "episode" not in info:
                 continue
@@ -319,7 +316,7 @@ class IsaacMetricsCallback(BaseCallback):
                 float(pickup_count),
                 wall_collision_steps,
             )
-            nav_metrics = self._compute_nav_metrics(env_idx) if self.include_continuous_features else {}
+            nav_metrics = self._compute_nav_metrics(env_idx)
 
             # Console summary (visible in main process)
             log = logging.getLogger("train")
@@ -343,8 +340,7 @@ class IsaacMetricsCallback(BaseCallback):
                 )
 
             if not self.use_wandb:
-                if self.include_continuous_features:
-                    self._reset_nav_stats(env_idx)
+                self._reset_nav_stats(env_idx)
                 continue
             import wandb
 
@@ -381,8 +377,7 @@ class IsaacMetricsCallback(BaseCallback):
                 metrics["perf/game_ticks_per_sec"] = tps
 
             wandb.log(metrics, step=self.num_timesteps)
-            if self.include_continuous_features:
-                self._reset_nav_stats(env_idx)
+            self._reset_nav_stats(env_idx)
 
         # Forward PPO training metrics to wandb (logged by SB3 to its internal logger)
         if self.use_wandb and self.model is not None:
@@ -508,8 +503,8 @@ def train(config_path: str | None = None, resume: str | None = None, config=None
 
     policy_kwargs = {
         "features_extractor_class": IsaacFeatureExtractor,
-        "features_extractor_kwargs": {"features_dim": 256},
-        "net_arch": {"pi": [128, 64], "vf": [128, 64]},
+        "features_extractor_kwargs": {"features_dim": 512},
+        "net_arch": {"pi": [256, 128], "vf": [256, 128]},
     }
 
     resume_path = resolve_resume_path(resume, checkpoint_dir, config_path, env)
@@ -572,7 +567,6 @@ def train(config_path: str | None = None, resume: str | None = None, config=None
         GamePauseCallback(env),
         IsaacMetricsCallback(
             use_wandb=use_wandb,
-            include_continuous_features=config.env.include_continuous_position_features,
             wall_collision_penalty=config.reward.wall_collision_penalty,
         ),
     ]
