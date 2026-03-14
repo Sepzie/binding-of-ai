@@ -1,5 +1,4 @@
 env:
-  include_continuous_position_features: true
   frame_skip: 3
   max_episode_steps: 300
   n_workers: 4

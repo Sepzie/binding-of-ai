@@ -1,7 +1,6 @@
 env:
-  include_continuous_position_features: true
-  frame_skip: 3
-  max_episode_steps: 800
+  frame_skip: 2
+  max_episode_steps: 1000
   n_workers: 4
   base_port: 9999
 

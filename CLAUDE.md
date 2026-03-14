@@ -29,5 +29,8 @@
 - Update this log whenever we learn something materially new about parameters, hyperparameters, reward design, environment setup, or evaluation methodology.
 - Each new entry should include: date, takeaway, evidence (W&B run links or logs), confidence level, and a follow-up note if longer runs are needed for confirmation.
 
+## Teaching
+- The user is learning RL/ML terminology as they go. When they use a term incorrectly or imprecisely, gently correct them and explain the right term. Frame it as "in ML this is usually called X" rather than "you're wrong."
+
 ## Documentary Stories
 This project doubles as a case study for a YouTube documentary series. Development stories live in `docs/story/` as numbered entries (e.g. `001_the_protocol_wall.md`). These are narrative, diary-style write-ups capturing key moments, debugging sagas, and design insights. The user may ask for a new story entry at the end of a session — only write one when asked.

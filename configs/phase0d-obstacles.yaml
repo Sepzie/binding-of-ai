@@ -1,5 +1,4 @@
 env:
-  include_continuous_position_features: true
   frame_skip: 3
   max_episode_steps: 700
   n_workers: 4
@@ -19,7 +18,7 @@ reward:
   wall_collision_penalty: -0.05
 
 train:
-  total_timesteps: 1000000
+  total_timesteps: 3000000
   learning_rate: 0.00005
   n_steps: 2048
   batch_size: 256
@@ -55,5 +54,5 @@ phase:
 wandb:
   enabled: true
   project: "binding-of-ai"
-  run_name: "phase0d-obstacles-low-wall-penalty"
-  tags: ["phase0d", "obstacles", "wall-penalty", "multicoin", "low-penalty"]
+  run_name: "phase0d-obstacles-bigger-nn"
+  tags: ["phase0d", "obstacles", "bigger-nn", "multicoin"]
