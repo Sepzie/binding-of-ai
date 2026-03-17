@@ -23,14 +23,17 @@ class IsaacFeatureExtractor(BaseFeaturesExtractor):
         n_channels = grid_shape[0]
 
         # CNN for grid observations
+        # MaxPool2d(2) reduces 7x13 → 3x6, preserving spatial layout
+        # while reducing dimensionality (vs AdaptiveAvgPool2d(1) which
+        # collapses all spatial info into a single value per channel).
         self.cnn = nn.Sequential(
             nn.Conv2d(n_channels, 32, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
         )
 

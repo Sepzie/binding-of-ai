@@ -55,5 +55,5 @@ phase:
 wandb:
   enabled: true
   project: "binding-of-ai"
-  run_name: "phase0d-pickup-approach-shaping"
-  tags: ["phase0d", "reward-shaping"]
+  run_name: "phase0d-maxpool-approach-fix"
+  tags: ["phase0d", "maxpool", "reward-shaping"]

@@ -143,6 +143,11 @@ class RewardShaper:
         if self.config.pickup_approach_scale == 0.0:
             return 0.0
 
+        # Skip on the step a coin was collected — the nearest pickup jumps to a
+        # new respawned location, creating a large spurious negative delta.
+        if state.player.num_coins > self.prev_state.player.num_coins:
+            return 0.0
+
         prev_dist = math.sqrt(
             self.prev_state.player.nearest_pickup_dx ** 2
             + self.prev_state.player.nearest_pickup_dy ** 2
@@ -152,7 +157,6 @@ class RewardShaper:
             + state.player.nearest_pickup_dy ** 2
         )
 
-        # Skip if either distance is zero (no pickup present or standing on it)
         if prev_dist == 0.0 or curr_dist == 0.0:
             return 0.0
 
