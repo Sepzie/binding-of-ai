@@ -15,7 +15,7 @@ reward:
   survival_bonus: 0.0
   nav_progress_scale: 0.0
   nav_reach_bonus: 0.0
-  wall_collision_penalty: -0.05
+  wall_collision_penalty: -0.025
 
 train:
   total_timesteps: 3000000
