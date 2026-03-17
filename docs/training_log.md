@@ -72,3 +72,11 @@ This file captures durable lessons from training runs so we can reuse what we le
 - **Tradeoff:** Global average pooling discards spatial layout from the CNN (where walls/obstacles are). Wall/obstacle proximity is currently only represented in the grid, not the player vector. If wall avoidance regresses, nearest-wall distance should be added to the player features.
 - **Expected outcome:** More stable training (lower clip_fraction, better explained_variance), smoother agent behavior, and player features actually influencing the policy. Requires training from scratch — old checkpoints are incompatible.
 - Confidence: medium-high — architecturally sound, but untested.
+
+## 2026-03-17 - Post-pooling network fails to learn coin collection
+
+- **Run `zgrjgzvv` (`phase0d-obstacles-avgpool-fix-no-collision`):** Trained the new pooled architecture from scratch with no wall penalty. Over 1.2M steps, the model failed to meaningfully improve past the first 100K. Pickups_collected oscillated between 28-38 with no upward trend, ep_rew_mean plateaued at 120-150.
+- **Key metric:** Explained variance was noisy (0.2-0.8), never stabilizing. Clip fraction 0.24-0.34 (still above healthy range). The critic couldn't reliably predict state-dependent returns.
+- **Diagnosis:** The remaining reward signal (time penalty -0.05/step + sparse coin pickup +10) lacks dense, state-dependent variation. Time penalty is constant regardless of behavior (-35/episode). Coin pickups are the only variable signal but are sparse and delayed. The bigger network (300K params vs old 100K) has a flatter loss landscape and needs stronger gradients to find structure.
+- **Fix:** Added potential-based pickup approach reward shaping (`pickup_approach_scale: 1.0`) — a per-step reward proportional to change in distance to nearest pickup. This gives dense, continuous signal that teaches navigation without changing the optimal policy.
+- Confidence: medium — reward shaping is well-established in RL literature, but the scale (1.0) may need tuning.
