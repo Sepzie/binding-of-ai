@@ -71,6 +71,11 @@ class RewardShaper:
         reward += pickup_reward
         self.reward_components["pickup_collected"] = pickup_reward
 
+        # Pickup approach shaping (reward for getting closer to nearest pickup)
+        approach_reward = self._compute_pickup_approach(state)
+        reward += approach_reward
+        self.reward_components["pickup_approach"] = approach_reward
+
         wall_collision_reward = self._compute_wall_collision(state, action)
         reward += wall_collision_reward
         self.reward_components["wall_collision"] = wall_collision_reward
@@ -132,6 +137,26 @@ class RewardShaper:
         curr_coins = state.player.num_coins
         collected = max(0, curr_coins - prev_coins)
         return collected * self.config.pickup_collected
+
+    def _compute_pickup_approach(self, state: GameState) -> float:
+        """Reward for reducing distance to the nearest pickup (potential-based shaping)."""
+        if self.config.pickup_approach_scale == 0.0:
+            return 0.0
+
+        prev_dist = math.sqrt(
+            self.prev_state.player.nearest_pickup_dx ** 2
+            + self.prev_state.player.nearest_pickup_dy ** 2
+        )
+        curr_dist = math.sqrt(
+            state.player.nearest_pickup_dx ** 2
+            + state.player.nearest_pickup_dy ** 2
+        )
+
+        # Skip if either distance is zero (no pickup present or standing on it)
+        if prev_dist == 0.0 or curr_dist == 0.0:
+            return 0.0
+
+        return (prev_dist - curr_dist) * self.config.pickup_approach_scale
 
     def _compute_wall_collision(
         self,

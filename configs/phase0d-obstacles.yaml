@@ -15,6 +15,7 @@ reward:
   survival_bonus: 0.0
   nav_progress_scale: 0.0
   nav_reach_bonus: 0.0
+  pickup_approach_scale: 1.0
   wall_collision_penalty: 0
 
 train:
@@ -54,5 +55,5 @@ phase:
 wandb:
   enabled: true
   project: "binding-of-ai"
-  run_name: "phase0d-obstacles-avgpool-fix-no-collision"
-  tags: ["phase0d", "obstacles", "avgpool", "arch-fix"]
+  run_name: "phase0d-pickup-approach-shaping"
+  tags: ["phase0d", "reward-shaping"]
