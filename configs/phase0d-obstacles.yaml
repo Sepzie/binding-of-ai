@@ -15,11 +15,11 @@ reward:
   survival_bonus: 0.0
   nav_progress_scale: 0.0
   nav_reach_bonus: 0.0
-  pickup_approach_scale: 1.0
+  pickup_approach_scale: 10.0
   wall_collision_penalty: 0
 
 train:
-  total_timesteps: 3000000
+  total_timesteps: 500000
   learning_rate: 0.00005
   n_steps: 2048
   batch_size: 256
