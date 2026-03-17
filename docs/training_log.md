@@ -78,5 +78,13 @@ This file captures durable lessons from training runs so we can reuse what we le
 - **Run `zgrjgzvv` (`phase0d-obstacles-avgpool-fix-no-collision`):** Trained the new pooled architecture from scratch with no wall penalty. Over 1.2M steps, the model failed to meaningfully improve past the first 100K. Pickups_collected oscillated between 28-38 with no upward trend, ep_rew_mean plateaued at 120-150.
 - **Key metric:** Explained variance was noisy (0.2-0.8), never stabilizing. Clip fraction 0.24-0.34 (still above healthy range). The critic couldn't reliably predict state-dependent returns.
 - **Diagnosis:** The remaining reward signal (time penalty -0.05/step + sparse coin pickup +10) lacks dense, state-dependent variation. Time penalty is constant regardless of behavior (-35/episode). Coin pickups are the only variable signal but are sparse and delayed. The bigger network (300K params vs old 100K) has a flatter loss landscape and needs stronger gradients to find structure.
-- **Fix:** Added potential-based pickup approach reward shaping (`pickup_approach_scale: 1.0`) — a per-step reward proportional to change in distance to nearest pickup. This gives dense, continuous signal that teaches navigation without changing the optimal policy.
+- **Fix attempted:** Added potential-based pickup approach reward shaping (`pickup_approach_scale`) — a per-step reward proportional to change in distance to nearest pickup.
 - Confidence: medium — reward shaping is well-established in RL literature, but the scale (1.0) may need tuning.
+
+## 2026-03-17 - AdaptiveAvgPool2d(1) destroys spatial info, approach shaping bug
+
+- **Run [`5amcfl6b`](https://wandb.ai/sepzie1/binding-of-ai/runs/5amcfl6b) (`phase0d-pickup-approach-shaping`):** Approach shaping at scale 10.0 with the global-avg-pooled architecture. 100K steps, no learning at all. Explained variance ≈ 0 (scale 0–0.0008). Policy entropy at theoretical maximum (~2.195 vs max 2.197) — effectively uniform random.
+- **Root cause 1 — architecture:** `AdaptiveAvgPool2d(1)` collapses the 7×13 grid to 1×1 per channel, destroying all spatial information. The critic can't distinguish states because it can't see *where* things are on the grid. Player vector features alone weren't enough to compensate.
+- **Root cause 2 — reward bug:** On the step a coin is collected and respawns, `nearest_pickup_dx/dy` jumps to the new coin's location. The approach shaping computed a large negative delta (~-6.8 at scale 10), nearly canceling the +10 collection reward.
+- **Fix:** Replaced `AdaptiveAvgPool2d(1)` with `MaxPool2d(2)` (7×13 → 3×6, preserves spatial layout). Reduced CNN last layer to 64 channels. Bottleneck: 1,280→512 (656K params). Fixed approach shaping to skip on collection steps.
+- Confidence: high on the diagnosis, medium on the fix — needs training validation.
