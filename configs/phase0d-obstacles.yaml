@@ -54,5 +54,5 @@ phase:
 wandb:
   enabled: true
   project: "binding-of-ai"
-  run_name: "phase0d-obstacles-wall-penalty"
-  tags: ["phase0d", "obstacles", "bigger-nn", "multicoin"]
+  run_name: "phase0d-obstacles-avgpool-fix"
+  tags: ["phase0d", "obstacles", "avgpool", "arch-fix"]

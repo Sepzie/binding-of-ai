@@ -52,3 +52,23 @@ This file captures durable lessons from training runs so we can reuse what we le
   2. `n_steps` change requires recreating the rollout buffer — `PPO.load()` allocates the buffer at load time with the old size.
   3. Old checkpoint hyperparameters (value function quality, etc.) don't poison the new run — after ~100k+ steps, the model fully adapts to new settings.
 - Confidence: high — hit both bugs in practice and confirmed fixes.
+
+## 2026-03-16 - Bigger NN regression and wall collision penalty tuning
+
+- **Context:** After adding distance vectors to the model input, explained variance was dipping to 0.2-0.5 and learning had stalled. We doubled the bottleneck (256 → 512) and scaled up the CNN (64 → 128 filters) and player MLP (64 → 128). Also added a wall collision penalty to prepare for obstacles.
+- **Run `yhdfihe8` (`phase0d-obstacles-bigger-nn`):** Wall collision penalty was too large — it swallowed the coin reward. Mid-training, Isaac had learned to run parallel to walls while avoiding coins (interpreting lack of wall penalty as reward). By end of training, it learned to stand completely still until timeout.
+- **Run `eaait2xd` (`phase0d-obstacles-double-reward-for-700-steps`):** Reduced collision penalty from 0.05 to 0.01 and doubled coin reward to 10.0 (compensating for longer 700-step episodes). Agent learned to collect 15+ coins per episode over 3M steps, but wall penalty was completely ignored.
+- **Run `wu0qeijm` (`phase0d-obstacles-wall-penalty`):** Increased collision penalty back to 0.05. No improvement in wall avoidance. Training plateaued — pickups flat at ~18, reward flat at ~120.
+- **Training stability issues in wu0qeijm:** clip_fraction 0.28-0.32 (healthy: <0.2), approx_kl 0.007-0.011 (rising), explained_variance 0.2-0.6 (noisy), value_loss 5-7. The optimizer was churning without finding improvement.
+- **Qualitative regression:** Agent movement was erratic and unstable compared to the smoother coin-to-coin navigation achieved with the old smaller architecture.
+- Confidence: high — consistent across multiple runs.
+
+## 2026-03-16 - CNN bottleneck layer too large (architectural fix)
+
+- **Takeaway:** The CNN had no spatial pooling — three conv layers with `padding=1` preserved the full 7×13 grid, producing a flattened output of 128 × 7 × 13 = **11,648 features**. Combined with the 128-dim player MLP, the bottleneck `fc` layer was 11,776 → 512, containing ~6M parameters. This caused two problems:
+  1. Player features (position, distances) were only 1.1% of the bottleneck input, drowning out the spatial/distance info critical for smooth navigation.
+  2. The 6M-param layer was undertrained with PPO's batch_size=256, leading to poor value estimates and erratic policy updates.
+- **Fix:** Added `AdaptiveAvgPool2d(1)` after the last conv layer, reducing CNN output from 11,648 to 128. The bottleneck layer is now 256 → 512 (~131K params), and player features are 50% of the input.
+- **Tradeoff:** Global average pooling discards spatial layout from the CNN (where walls/obstacles are). Wall/obstacle proximity is currently only represented in the grid, not the player vector. If wall avoidance regresses, nearest-wall distance should be added to the player features.
+- **Expected outcome:** More stable training (lower clip_fraction, better explained_variance), smoother agent behavior, and player features actually influencing the policy. Requires training from scratch — old checkpoints are incompatible.
+- Confidence: medium-high — architecturally sound, but untested.
