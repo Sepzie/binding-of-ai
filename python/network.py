@@ -25,11 +25,11 @@ class IsaacFeatureExtractor(BaseFeaturesExtractor):
         # CNN for grid observations — no pooling, fewer channels
         # 32 channels × 7 × 13 = 2,912 after flatten (full spatial info preserved)
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_channels, 16, kernel_size=3, padding=1),
+            nn.Conv2d(n_channels, 32, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(32, 32, kernel_size=3, padding=1),
+            nn.Conv2d(64, 64, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.Flatten(),
         )

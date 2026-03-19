@@ -1,6 +1,7 @@
 env:
   frame_skip: 3
   max_episode_steps: 700
+  mask_distance_vectors: true
   n_workers: 4
   base_port: 9999
 
@@ -15,8 +16,8 @@ reward:
   survival_bonus: 0.0
   nav_progress_scale: 0.0
   nav_reach_bonus: 0.0
-  pickup_approach_scale: 20.0
-  wall_collision_penalty: -1
+  pickup_approach_scale: 0.0
+  wall_collision_penalty: 0.0
 
 train:
   total_timesteps: 5000000
@@ -55,5 +56,5 @@ phase:
 wandb:
   enabled: true
   project: "binding-of-ai"
-  run_name: "phase0d-v4-lr5e5-debug-overlay"
-  tags: ["phase0d", "v4-arch", "reward-shaping"]
+  run_name: "phase0d-v1-baseline-masked-vectors"
+  tags: ["phase0d", "v1-arch", "ablation", "masked-vectors"]

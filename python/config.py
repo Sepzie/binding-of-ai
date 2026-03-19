@@ -12,6 +12,7 @@ class EnvConfig:
     grid_height: int = 7
     grid_channels: int = 8
     player_features: int = 22
+    mask_distance_vectors: bool = False
     frame_skip: int = 1
     max_episode_steps: int = 3000
     action_timeout: float = 5.0

@@ -116,16 +116,19 @@ class IsaacEnv(gym.Env):
             p.active_charge,
         ]
 
-        player_features.extend([
-            p.pos_x,
-            p.pos_y,
-            p.nearest_pickup_dx,
-            p.nearest_pickup_dy,
-            p.nearest_enemy_dx,
-            p.nearest_enemy_dy,
-            p.nearest_projectile_dx,
-            p.nearest_projectile_dy,
-        ])
+        if self.env_cfg.mask_distance_vectors:
+            player_features.extend([0.0] * 8)
+        else:
+            player_features.extend([
+                p.pos_x,
+                p.pos_y,
+                p.nearest_pickup_dx,
+                p.nearest_pickup_dy,
+                p.nearest_enemy_dx,
+                p.nearest_enemy_dy,
+                p.nearest_projectile_dx,
+                p.nearest_projectile_dy,
+            ])
 
         player = np.array(player_features, dtype=np.float32)
         if player.shape != (self.env_cfg.player_features,):
