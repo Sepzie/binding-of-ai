@@ -88,3 +88,11 @@ This file captures durable lessons from training runs so we can reuse what we le
 - **Root cause 2 — reward bug:** On the step a coin is collected and respawns, `nearest_pickup_dx/dy` jumps to the new coin's location. The approach shaping computed a large negative delta (~-6.8 at scale 10), nearly canceling the +10 collection reward.
 - **Fix:** Replaced `AdaptiveAvgPool2d(1)` with `MaxPool2d(2)` (7×13 → 3×6, preserves spatial layout). Reduced CNN last layer to 64 channels. Bottleneck: 1,280→512 (656K params). Fixed approach shaping to skip on collection steps.
 - Confidence: high on the diagnosis, medium on the fix — needs training validation.
+
+## 2026-03-18 - Bigger network (V3 MaxPool) is less stable than original
+
+- **Run [`mgspdtj4`](https://wandb.ai/sepzie1/binding-of-ai/runs/mgspdtj4):** 5M steps with MaxPool2d(2) architecture (64ch, 1,280→512 bottleneck) + approach shaping + bug fix. Model learned for ~500K steps (ep_rew 0→100, explained_variance 0→0.6), then became unstable. Explained variance repeatedly collapsed from 0.6 to 0.2. Clip fraction 0.25-0.35 (well above healthy 0.1-0.2). Approx_kl rising steadily from 0.002 to 0.01. Pickups oscillated 4-14, never improved past 500K.
+- **Diagnosis:** The larger network (300K+ params) with the same hyperparameters tuned for the smaller network caused oversized policy updates. Each gradient step changed more parameters, producing higher clip fractions and unstable critic learning. The bigger network was strictly worse than the original V1 which collected 30+ coins.
+- **Fix:** Reverted to V1-style architecture with fewer CNN channels (8→16→32→32, no pooling, flatten). Bottleneck: 2,976→256 (~762K params). Full spatial info preserved. Policy/value heads back to original size (128→64). Learning rate raised from 5e-5 to 1e-4 to match smaller network.
+- **Lesson:** Bigger networks aren't automatically better in RL. The original architecture's stability was more valuable than extra capacity. The real bottleneck fix was reducing CNN channels, not adding pooling.
+- Confidence: high — clear regression with evidence across 5M steps.
