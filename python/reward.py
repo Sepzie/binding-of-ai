@@ -10,6 +10,8 @@ class RewardShaper:
 
     WALL_COLLISION_DISTANCE_THRESHOLD = 1.0
     WALL_COLLISION_AXIS_THRESHOLD = 0.5
+    # Normalized pos_x/pos_y thresholds for "near a room wall"
+    WALL_PROXIMITY_THRESHOLD = 0.08
     MOVE_DIRECTION_COMPONENTS = {
         1: (0, -1),
         2: (0, 1),
@@ -174,23 +176,26 @@ class RewardShaper:
         if movement_action == 0:
             return 0.0
 
+        # Only penalize if the player is actually near a room wall.
+        # This avoids false positives from momentum/deceleration during
+        # direction changes in open space.
+        px, py = state.player.pos_x, state.player.pos_y
+        near_wall = (
+            px < self.WALL_PROXIMITY_THRESHOLD
+            or px > 1.0 - self.WALL_PROXIMITY_THRESHOLD
+            or py < self.WALL_PROXIMITY_THRESHOLD
+            or py > 1.0 - self.WALL_PROXIMITY_THRESHOLD
+        )
+        if not near_wall:
+            return 0.0
+
         prev_pos = self._player_position(self.prev_state)
         curr_pos = self._player_position(state)
         if prev_pos is None or curr_pos is None:
             return 0.0
 
-        dx = curr_pos[0] - prev_pos[0]
-        dy = curr_pos[1] - prev_pos[1]
         if math.dist(prev_pos, curr_pos) < self.WALL_COLLISION_DISTANCE_THRESHOLD:
             return self.config.wall_collision_penalty
-
-        move_components = self.MOVE_DIRECTION_COMPONENTS.get(movement_action)
-        if not move_components:
-            return 0.0
-
-        for intended, actual in ((move_components[0], dx), (move_components[1], dy)):
-            if intended != 0 and actual * intended < self.WALL_COLLISION_AXIS_THRESHOLD:
-                return self.config.wall_collision_penalty
 
         return 0.0
 
