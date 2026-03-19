@@ -22,17 +22,14 @@ class IsaacFeatureExtractor(BaseFeaturesExtractor):
 
         n_channels = grid_shape[0]
 
-        # CNN for grid observations
-        # MaxPool2d(2) reduces 7x13 → 3x6, preserving spatial layout
-        # while reducing dimensionality (vs AdaptiveAvgPool2d(1) which
-        # collapses all spatial info into a single value per channel).
+        # CNN for grid observations — no pooling, fewer channels
+        # 32 channels × 7 × 13 = 2,912 after flatten (full spatial info preserved)
         self.cnn = nn.Sequential(
-            nn.Conv2d(n_channels, 32, kernel_size=3, padding=1),
+            nn.Conv2d(n_channels, 16, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.Conv2d(16, 32, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.Flatten(),
         )
@@ -44,13 +41,13 @@ class IsaacFeatureExtractor(BaseFeaturesExtractor):
 
         # MLP for player state
         self.player_mlp = nn.Sequential(
-            nn.Linear(player_shape[0], 128),
+            nn.Linear(player_shape[0], 64),
             nn.ReLU(),
-            nn.Linear(128, 128),
+            nn.Linear(64, 64),
             nn.ReLU(),
         )
 
-        combined_size = cnn_out_size + 128
+        combined_size = cnn_out_size + 64
 
         # Final projection to features_dim
         self.fc = nn.Sequential(

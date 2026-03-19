@@ -503,8 +503,8 @@ def train(config_path: str | None = None, resume: str | None = None, config=None
 
     policy_kwargs = {
         "features_extractor_class": IsaacFeatureExtractor,
-        "features_extractor_kwargs": {"features_dim": 512},
-        "net_arch": {"pi": [256, 128], "vf": [256, 128]},
+        "features_extractor_kwargs": {"features_dim": 256},
+        "net_arch": {"pi": [128, 64], "vf": [128, 64]},
     }
 
     resume_path = resolve_resume_path(resume, checkpoint_dir, config_path, env)
