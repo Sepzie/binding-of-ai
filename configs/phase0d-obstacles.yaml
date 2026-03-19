@@ -16,11 +16,11 @@ reward:
   nav_progress_scale: 0.0
   nav_reach_bonus: 0.0
   pickup_approach_scale: 10.0
-  wall_collision_penalty: 0
+  wall_collision_penalty: -0.01
 
 train:
   total_timesteps: 500000
-  learning_rate: 0.00005
+  learning_rate: 0.0001
   n_steps: 2048
   batch_size: 256
   n_epochs: 4
@@ -29,7 +29,7 @@ train:
   ent_coef: 0.01
 
 phase:
-  enemy_type: 13
+  enemy_type: 13  # harmless fly to keep the doors closed
   enemy_variant: 0
   enemy_count: 1
   spawn_pickup_penny: true
@@ -55,5 +55,5 @@ phase:
 wandb:
   enabled: true
   project: "binding-of-ai"
-  run_name: "phase0d-maxpool-approach-fix"
-  tags: ["phase0d", "maxpool", "reward-shaping"]
+  run_name: "phase0d-v4-smaller-cnn-no-pool"
+  tags: ["phase0d", "v4-arch", "reward-shaping"]
