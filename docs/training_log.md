@@ -2,6 +2,16 @@
 
 This file captures durable lessons from training runs so we can reuse what we learn.
 
+## Architecture Version Reference
+
+| Version | Commit | CNN Channels | Pooling | CNN Output | Player Features | Player MLP | Bottleneck | Best Pickups |
+|---------|--------|-------------|---------|------------|-----------------|------------|------------|-------------|
+| V1 | `c0dcd08` | 8→32→64→64 | None | 5,824 | 14 | 14→64→64 | 5,888→256 | **~30** |
+| V2 | `11c5345` | 8→32→64→128 | None | 11,648 | 22 | 22→128→128 | 11,776→256 | untested (too large) |
+| V2b | `7c028c0` | 8→32→64→128 | AvgPool(1) | 128 | 22 | 22→128→128 | 256→256 | ~0 (spatial info destroyed) |
+| V3 | `20ebed0` | 8→16→32→64 | MaxPool(2) | 1,152 | 22 | 22→64→64 | 1,216→256 | ~14 (unstable) |
+| V4 | `99d4442` | 8→16→32→32 | None | 2,912 | 22 | 22→64→64 | 2,976→256 | ~16 |
+
 ## 2026-03-10 - Phase0b nav coin smoke frame-skip sweep
 - Takeaway: `frame_skip=3` is the current sweet spot for learning speed and stability in this task setup.
 - RL term: this behavior is commonly called `reward hacking` or `specification gaming` (the agent learns a shortcut that maximizes the specified reward efficiently).
@@ -93,6 +103,17 @@ This file captures durable lessons from training runs so we can reuse what we le
 
 - **Run [`mgspdtj4`](https://wandb.ai/sepzie1/binding-of-ai/runs/mgspdtj4):** 5M steps with MaxPool2d(2) architecture (64ch, 1,280→512 bottleneck) + approach shaping + bug fix. Model learned for ~500K steps (ep_rew 0→100, explained_variance 0→0.6), then became unstable. Explained variance repeatedly collapsed from 0.6 to 0.2. Clip fraction 0.25-0.35 (well above healthy 0.1-0.2). Approx_kl rising steadily from 0.002 to 0.01. Pickups oscillated 4-14, never improved past 500K.
 - **Diagnosis:** The larger network (300K+ params) with the same hyperparameters tuned for the smaller network caused oversized policy updates. Each gradient step changed more parameters, producing higher clip fractions and unstable critic learning. The bigger network was strictly worse than the original V1 which collected 30+ coins.
-- **Fix:** Reverted to V1-style architecture with fewer CNN channels (8→16→32→32, no pooling, flatten). Bottleneck: 2,976→256 (~762K params). Full spatial info preserved. Policy/value heads back to original size (128→64). Learning rate raised from 5e-5 to 1e-4 to match smaller network.
+- **Fix:** Designed V4 architecture with fewer CNN channels (8→16→32→32, no pooling, flatten). Bottleneck: 2,976→256. Policy/value heads back to original size (128→64). Learning rate raised from 5e-5 to 1e-4.
+- **Important note:** V4 is NOT the same as V1. V1 had wider CNN channels (8→32→64→64, CNN output 5,824) with 14 player features. V4 has narrower channels (8→16→32→32, CNN output 2,912) with 22 player features (added distance vectors). V4 has half the CNN spatial capacity of V1.
 - **Lesson:** Bigger networks aren't automatically better in RL. The original architecture's stability was more valuable than extra capacity. The real bottleneck fix was reducing CNN channels, not adding pooling.
 - Confidence: high — clear regression with evidence across 5M steps.
+
+## 2026-03-19 - V4 architecture with approach shaping: learning but slow
+
+- **Run [`man2a6p8`](https://wandb.ai/sepzie1/binding-of-ai/runs/man2a6p8):** 5M steps with V4 architecture (8→16→32→32 channels, no pooling, 2,976→256 bottleneck) + approach shaping (scale 10.0) + wall collision penalty (-0.05). lr=5e-5, pickup_collected=10.0.
+- **Results:** Model learned steadily but slowly. Pickups collected rose from ~4 to 14-16 by 5M steps. Ep_rew_mean climbed from -20 to ~120. Pickup rate near 1.0 (almost always picks up at least one coin). Wall collision steps ~300-400 (noisy, no clear downward trend).
+- **Training health:** Explained variance noisy 0.3-0.6 (never stabilized above 0.6). Clip fraction 0.2-0.35 (still above ideal). Approx_kl rising from 0.004 to 0.01. Entropy loss rising from -2.1 to -1.7 (policy exploring more). Value loss rising with reward scale (3→7).
+- **Comparison:** The original V1 architecture (no approach shaping, no distance vectors, wider CNN: 8→32→64→64 = 5,824 CNN features, 14 player features) reached ~30 pickups in similar or less training time. V4 has half the CNN capacity (2,912 vs 5,824 features) plus 8 extra player features that were supposed to compensate. Multiple variables changed simultaneously: CNN capacity halved, distance vectors added, approach shaping added, wall collision added. Impossible to attribute the regression to any single change.
+- **Next steps:** Fixed wall collision false positives (momentum during direction changes, diagonal movement). Bumped pickup_approach_scale 10→20 and wall_collision_penalty -0.05→-1.0. Reduced lr remains at 5e-5. Running new training to see if stronger signals help.
+- **Suggested ablation:** Run V1-exact architecture (8→32→64→64, 14 player features, no shaping, no wall penalty) to re-establish the baseline, then add changes one at a time.
+- Confidence: high on the data, uncertain on the path forward — too many simultaneous changes to diagnose.
