@@ -176,25 +176,32 @@ class RewardShaper:
         if movement_action == 0:
             return 0.0
 
-        # Only penalize if the player is actually near a room wall.
-        # This avoids false positives from momentum/deceleration during
-        # direction changes in open space.
-        px, py = state.player.pos_x, state.player.pos_y
-        near_wall = (
-            px < self.WALL_PROXIMITY_THRESHOLD
-            or px > 1.0 - self.WALL_PROXIMITY_THRESHOLD
-            or py < self.WALL_PROXIMITY_THRESHOLD
-            or py > 1.0 - self.WALL_PROXIMITY_THRESHOLD
-        )
-        if not near_wall:
-            return 0.0
-
         prev_pos = self._player_position(self.prev_state)
         curr_pos = self._player_position(state)
         if prev_pos is None or curr_pos is None:
             return 0.0
 
-        if math.dist(prev_pos, curr_pos) < self.WALL_COLLISION_DISTANCE_THRESHOLD:
+        # Per-axis wall collision: if the player is near a wall on a given
+        # axis AND barely moved on that axis, they're colliding.  This
+        # correctly detects diagonal movement into walls, where the other
+        # axis still has free movement.
+        px, py = state.player.pos_x, state.player.pos_y
+        dx = abs(curr_pos[0] - prev_pos[0])
+        dy = abs(curr_pos[1] - prev_pos[1])
+
+        near_wall_x = (
+            px < self.WALL_PROXIMITY_THRESHOLD
+            or px > 1.0 - self.WALL_PROXIMITY_THRESHOLD
+        )
+        near_wall_y = (
+            py < self.WALL_PROXIMITY_THRESHOLD
+            or py > 1.0 - self.WALL_PROXIMITY_THRESHOLD
+        )
+
+        stuck_x = near_wall_x and dx < self.WALL_COLLISION_AXIS_THRESHOLD
+        stuck_y = near_wall_y and dy < self.WALL_COLLISION_AXIS_THRESHOLD
+
+        if stuck_x or stuck_y:
             return self.config.wall_collision_penalty
 
         return 0.0
