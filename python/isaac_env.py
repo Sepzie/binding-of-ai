@@ -221,10 +221,24 @@ class IsaacEnv(gym.Env):
         shoot_action = int(action[1])
 
         # Send action (fire-and-forget, Lua latches it)
-        self._client.send({
+        action_msg = {
             "command": "action",
             "action": {"move": move_action, "shoot": shoot_action},
-        })
+        }
+
+        # Attach reward breakdown for in-game debug overlay
+        if self.reward_shaper.reward_components:
+            rc = self.reward_shaper.reward_components
+            action_msg["debug"] = {
+                "reward": round(self._ep_reward, 2),
+                "step_reward": round(sum(rc.values()), 3),
+                "pickup_approach": round(rc.get("pickup_approach", 0), 3),
+                "wall_collision": round(rc.get("wall_collision", 0), 3),
+                "pickup_collected": round(rc.get("pickup_collected", 0), 1),
+                "time": round(rc.get("time", 0), 3),
+            }
+
+        self._client.send(action_msg)
 
         # Receive next state from Lua's stream (measure wait time)
         t_before = time.monotonic()

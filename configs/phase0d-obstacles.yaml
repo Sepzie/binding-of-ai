@@ -16,11 +16,11 @@ reward:
   nav_progress_scale: 0.0
   nav_reach_bonus: 0.0
   pickup_approach_scale: 10.0
-  wall_collision_penalty: -0.01
+  wall_collision_penalty: -0.05
 
 train:
-  total_timesteps: 500000
-  learning_rate: 0.0001
+  total_timesteps: 5000000
+  learning_rate: 0.00005
   n_steps: 2048
   batch_size: 256
   n_epochs: 4
@@ -55,5 +55,5 @@ phase:
 wandb:
   enabled: true
   project: "binding-of-ai"
-  run_name: "phase0d-v4-smaller-cnn-no-pool"
+  run_name: "phase0d-v4-lr5e5-debug-overlay"
   tags: ["phase0d", "v4-arch", "reward-shaping"]

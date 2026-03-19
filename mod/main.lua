@@ -18,6 +18,7 @@ local episodeStartCoins = 0
 local pickupsCollected = 0
 local lastAction = {move = 0, shoot = 0}
 local paused = false
+local debugInfo = nil  -- reward overlay from Python
 
 -- Initialize on game start
 function mod:onGameStart(isContinue)
@@ -76,6 +77,9 @@ local function handleMessage(message)
         GameControl.resetEpisode()
     elseif message.action then
         lastAction = message.action
+        if message.debug then
+            debugInfo = message.debug
+        end
     end
 end
 
@@ -203,6 +207,39 @@ end
 function mod:onRender()
     if not serverStarted then
         return
+    end
+
+    -- Draw debug reward overlay
+    if debugInfo then
+        local font = Font()
+        font:Load("font/terminus.fnt")
+        if font:IsLoaded() then
+            local x = 40
+            local y = 30
+            local lineH = 12
+            local white = KColor(1, 1, 1, 0.9)
+            local green = KColor(0.2, 1, 0.2, 0.9)
+            local red = KColor(1, 0.3, 0.3, 0.9)
+
+            font:DrawString("-- Reward Debug --", x, y, white, 0, false)
+            y = y + lineH + 2
+
+            local function drawReward(label, value, y)
+                local color = white
+                if value > 0.001 then color = green
+                elseif value < -0.001 then color = red end
+                font:DrawString(string.format("%-18s %+.3f", label, value), x, y, color, 0, false)
+                return y + lineH
+            end
+
+            y = drawReward("step_reward", debugInfo.step_reward or 0, y)
+            y = drawReward("pickup_approach", debugInfo.pickup_approach or 0, y)
+            y = drawReward("pickup_collected", debugInfo.pickup_collected or 0, y)
+            y = drawReward("wall_collision", debugInfo.wall_collision or 0, y)
+            y = drawReward("time", debugInfo.time or 0, y)
+            y = y + 4
+            font:DrawString(string.format("ep_reward: %.1f", debugInfo.reward or 0), x, y, white, 0, false)
+        end
     end
 
     if not server.connected then
