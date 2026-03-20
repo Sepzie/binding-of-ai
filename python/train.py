@@ -2,6 +2,7 @@ import argparse
 import logging
 import math
 import signal
+import time
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -169,6 +170,9 @@ class IsaacMetricsCallback(BaseCallback):
         self._recent_wall_collision_steps: list[float] = []
         self._last_train_log_step = 0
         self._nav_stats_by_env: dict[int, dict] = {}
+        # Steps-per-second tracking
+        self._sps_last_time: float | None = None
+        self._sps_last_step: int = 0
 
     @staticmethod
     def _fresh_nav_stats() -> dict:
@@ -375,6 +379,16 @@ class IsaacMetricsCallback(BaseCallback):
                 metrics["perf/instant_ratio"] = info["instant_ratio"]
             if tps > 0:
                 metrics["perf/game_ticks_per_sec"] = tps
+
+            # Steps per second (wall-clock training speed)
+            now = time.monotonic()
+            if self._sps_last_time is not None:
+                elapsed = now - self._sps_last_time
+                if elapsed > 0:
+                    sps = (self.num_timesteps - self._sps_last_step) / elapsed
+                    metrics["perf/steps_per_second"] = sps
+            self._sps_last_time = now
+            self._sps_last_step = self.num_timesteps
 
             wandb.log(metrics, step=self.num_timesteps)
             self._reset_nav_stats(env_idx)
