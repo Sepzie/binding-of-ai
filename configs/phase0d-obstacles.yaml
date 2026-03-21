@@ -1,7 +1,7 @@
 env:
   frame_skip: 3
   max_episode_steps: 500
-  mask_distance_vectors: true
+  mask_distance_vectors: false
   n_workers: 4
   base_port: 9999
 
@@ -17,7 +17,7 @@ reward:
   nav_progress_scale: 0.0
   nav_reach_bonus: 0.0
   pickup_approach_scale: 0.0
-  wall_collision_penalty: 0.0
+  wall_collision_penalty: -0.05
 
 train:
   total_timesteps: 5000000
@@ -56,5 +56,5 @@ phase:
 wandb:
   enabled: true
   project: "binding-of-ai"
-  run_name: "phase0d-v1-baseline-masked-vectors"
-  tags: ["phase0d", "v1-arch", "ablation", "masked-vectors"]
+  run_name: "phase0d-v1-wall-penalty-unmasked-vectors"
+  tags: ["phase0d", "v1-arch", "wall-penalty", "distance-vectors"]

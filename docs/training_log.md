@@ -117,3 +117,13 @@ This file captures durable lessons from training runs so we can reuse what we le
 - **Next steps:** Fixed wall collision false positives (momentum during direction changes, diagonal movement). Bumped pickup_approach_scale 10→20 and wall_collision_penalty -0.05→-1.0. Reduced lr remains at 5e-5. Running new training to see if stronger signals help.
 - **Suggested ablation:** Run V1-exact architecture (8→32→64→64, 14 player features, no shaping, no wall penalty) to re-establish the baseline, then add changes one at a time.
 - Confidence: high on the data, uncertain on the path forward — too many simultaneous changes to diagnose.
+
+## 2026-03-21 - V1 baseline ablation: ~30 hours, ~36 pickups, patience matters
+
+- **Context:** Ran V1 architecture (8→32→64→64 CNN, 14 player features) as an ablation baseline with masked distance vectors, no approach shaping, no wall penalty. pickup_collected=5.0, 500-step episodes, lr=5e-5.
+- **Runs:** [`kcxnmmds`](https://wandb.ai/sepzie1/binding-of-ai/runs/kcxnmmds) → [`qhk2v9kj`](https://wandb.ai/sepzie1/binding-of-ai/runs/qhk2v9kj) → [`web1zl67`](https://wandb.ai/sepzie1/binding-of-ai/runs/web1zl67) → [`6sfr9qbs`](https://wandb.ai/sepzie1/binding-of-ai/runs/6sfr9qbs) (sequential resumes, ~30 hours total). Eval run: [`pxbg826y`](https://wandb.ai/sepzie1/binding-of-ai/runs/pxbg826y).
+- **Result:** Model converged at ~36 pickups/episode average. This is the best performance achieved so far and confirms V1 as the strongest architecture tested.
+- **Key lesson — patience in evaluation:** Previously judged runs in 300K–1M step windows, which sometimes missed ongoing growth. Letting the model train until it truly plateaued for >1M steps revealed continued improvement that shorter windows would have missed. The model was still improving at points where earlier runs were cut short.
+- **Takeaway:** When evaluating RL training, don't cut runs short based on short-window stalls. Look for a true plateau sustained over 1M+ steps before concluding the model has converged. Growth can be slow and noisy — what looks like a plateau in a 500K window may be the middle of a long upward trend.
+- Confidence: high — 30 hours of training, clear convergence.
+- Follow-up: now adding wall collision penalty (-0.05) and unmasking distance vectors to see if they can push beyond 36 pickups.
